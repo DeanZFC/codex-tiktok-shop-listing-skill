@@ -6,21 +6,14 @@
 
 ## 安装
 
-在另一台电脑的 Codex 中直接说：
+这是公开仓库，不需要登录 GitHub。最简单的安装方式是在另一台电脑的 Codex 中直接发送下面这句话和地址：
 
 ```text
-请从 GitHub 私有仓库 DeanZFC/codex-tiktok-shop-listing-skill 安装 skills/manage-tiktok-shop-listings 这个 Skill。如果需要认证，先让我登录 GitHub。
+请安装这个 GitHub Skill：
+https://github.com/DeanZFC/codex-tiktok-shop-listing-skill/tree/main/skills/manage-tiktok-shop-listings
 ```
 
-这是私有仓库。新电脑必须先登录有权访问该仓库的 GitHub 账号。推荐安装 GitHub CLI 后运行：
-
-```bash
-gh auth login
-```
-
-也可以在当前终端临时设置具有该私有仓库读取权限的 `GH_TOKEN`。不要把 Token 写入本仓库、配置文件或命令历史。
-
-认证完成后，可以使用 Codex 自带的安装器：
+也可以使用 Codex 自带的安装器手动安装：
 
 ```bash
 python ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
@@ -63,3 +56,4 @@ python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" init-confi
 - 采集前必须按本机配置检查实时供货文档的所有工作表。
 
 需要跨电脑延续去重时，另行安全迁移工作区内的 `.tiktok-shop-listing/history.json`，不要把它提交到代码仓库。
+

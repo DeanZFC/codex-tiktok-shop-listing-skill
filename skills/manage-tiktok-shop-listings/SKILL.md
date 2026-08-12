@@ -25,14 +25,16 @@ description: Manage category-agnostic TikTok Shop product selection and listing 
 python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" init-config
 ```
 
-编辑 `<WORKSPACE>/.tiktok-shop-listing/config.json`，至少设置正确的 `catalog_roots`、`output_root` 和供货文档地址。运行：
+编辑 `<WORKSPACE>/.tiktok-shop-listing/config.json`，至少设置正确的 `catalog_roots` 和 `output_root`。供货文档必须由用户针对当前品类重新提供；不得从旧品类、旧配置、历史或记忆复用。收到地址后，同时把当前 `catalog_roots` 原样写入 `availability.bound_catalog_roots`。运行：
 
 ```bash
 python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" show-config
 python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" audit
 ```
 
-配置缺失、供货核验被设为必需但文档地址为空，或路径无法确认时停止，不猜测。
+`audit.valid=true` 表示可以选品和准备扫同款资料；只有 `audit.collection_ready=true` 才能供货核验、记录销量链接或采集。文档未提供或未绑定时不要阻止前期选品，但进入采集阶段必须停止并向用户索取当前品类文档。
+
+换品类或修改 `catalog_roots` 时，先把 `availability.document_url` 清空并把 `availability.bound_catalog_roots` 设为 `[]`。即使旧 URL 看起来仍可访问也不得沿用；必须等待用户手动提供新文档，再绑定到当前商品目录。
 
 ## 选择与预留
 
@@ -119,7 +121,7 @@ python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" verify "<O
 
 ## 收到销量链接
 
-用户发送的一至三条链接按发送顺序代表销量从高到低，永久保持该顺序。先按 [availability.md](references/availability.md) 实时检查配置中的供货文档；核验未通过时不记录链接、不打开平台页面、不进入采集。
+用户发送的一至三条链接按发送顺序代表销量从高到低，永久保持该顺序。先运行 `audit`；若 `collection_ready=false`，向用户索取当前品类供货文档并完成目录绑定。之后按 [availability.md](references/availability.md) 实时检查配置中的供货文档；核验未通过时不记录链接、不打开平台页面、不进入采集。
 
 核验通过并执行 `confirm-availability` 后，运行：
 

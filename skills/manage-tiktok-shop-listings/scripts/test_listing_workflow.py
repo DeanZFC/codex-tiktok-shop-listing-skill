@@ -32,6 +32,7 @@ class ListingWorkflowTests(unittest.TestCase):
         self.config_path = self.root / ".tiktok-shop-listing" / "config.json"
         config = self.load_config()
         config["availability"]["document_url"] = "https://www.kdocs.cn/l/example-stock-document"
+        config["availability"]["bound_catalog_roots"] = list(config["catalog_roots"])
         self.save_config(config)
         self.catalog = self.root / "选品" / "测试分类"
         self.catalog.mkdir(parents=True)
@@ -156,13 +157,15 @@ class ListingWorkflowTests(unittest.TestCase):
         healthy = self.run_cli("audit")
         self.assertEqual(healthy.returncode, 0, healthy.stderr)
         self.assertTrue(json.loads(healthy.stdout)["valid"])
+        self.assertTrue(json.loads(healthy.stdout)["collection_ready"])
 
         config = self.load_config()
         config["availability"]["document_url"] = ""
         self.save_config(config)
         missing_url = self.run_cli("audit")
-        self.assertEqual(missing_url.returncode, 2)
-        self.assertFalse(json.loads(missing_url.stdout)["valid"])
+        self.assertEqual(missing_url.returncode, 0)
+        self.assertTrue(json.loads(missing_url.stdout)["valid"])
+        self.assertFalse(json.loads(missing_url.stdout)["collection_ready"])
         self.assertIn("availability.document_url", missing_url.stdout)
 
         config["availability"]["document_url"] = "https://www.kdocs.cn/l/example-stock-document"
@@ -174,6 +177,43 @@ class ListingWorkflowTests(unittest.TestCase):
         eligible = self.run_cli("eligible")
         self.assertEqual(eligible.returncode, 2)
         self.assertIn("catalog roots are missing", eligible.stderr)
+
+    def test_category_change_requires_new_bound_supplier_document(self) -> None:
+        config = self.load_config()
+        config["catalog_roots"] = ["选品/测试分类"]
+        self.save_config(config)
+
+        audit = self.run_cli("audit")
+        self.assertEqual(audit.returncode, 0, audit.stderr)
+        payload = json.loads(audit.stdout)
+        self.assertTrue(payload["valid"])
+        self.assertFalse(payload["collection_ready"])
+        self.assertIn("bound_catalog_roots", audit.stdout)
+
+        output_dir = self.reserve("新分类商品", "NEW-1000")
+        blocked = self.confirm(output_dir, "NEW-1000")
+        self.assertEqual(blocked.returncode, 2)
+        self.assertIn("ask the user", blocked.stderr)
+
+        config["availability"]["document_url"] = ""
+        config["availability"]["bound_catalog_roots"] = []
+        self.save_config(config)
+        selectable = self.run_cli("eligible")
+        self.assertEqual(selectable.returncode, 0, selectable.stderr)
+
+        config["availability"]["document_url"] = "https://www.kdocs.cn/l/new-category-document"
+        config["availability"]["bound_catalog_roots"] = list(config["catalog_roots"])
+        self.save_config(config)
+        ready = self.run_cli("audit")
+        self.assertTrue(json.loads(ready.stdout)["collection_ready"])
+
+    def test_equivalent_bound_catalog_path_is_accepted(self) -> None:
+        config = self.load_config()
+        config["availability"]["bound_catalog_roots"] = [str(self.root / "选品")]
+        self.save_config(config)
+        audit = self.run_cli("audit")
+        self.assertEqual(audit.returncode, 0, audit.stderr)
+        self.assertTrue(json.loads(audit.stdout)["collection_ready"])
 
     def test_numeric_config_fields_reject_json_booleans(self) -> None:
         config = self.load_config()

@@ -14,9 +14,12 @@
 
 1. `catalog_roots`：一个或多个商品资料目录。
 2. `output_root`：按日期和 `001-货号` 保存结果的目录。
-3. `availability.document_url`：实时供货文档 URL；供货核验必需时不能为空。
-4. `availability.sold_out_sheets`：所有售罄、暂停供货或下架工作表名称。
-5. `deliverables`：交付文件名及规格图是否必需。
+3. `availability.document_url`：由用户手动提供的当前品类实时供货文档 URL。
+4. `availability.bound_catalog_roots`：确认该文档对应的商品库；填写与当前 `catalog_roots` 相同的列表和顺序。
+5. `availability.sold_out_sheets`：所有售罄、暂停供货或下架工作表名称。
+6. `deliverables`：交付文件名及规格图是否必需。
+
+首次使用或切换品类时，不得沿用以前品类的文档。先把 `document_url` 清空、`bound_catalog_roots` 设为 `[]`，再向用户索取当前品类文档。用户提供后才填写 URL 并绑定当前商品库。
 
 ## 配置字段
 
@@ -30,6 +33,7 @@
 | `product_discovery.min_product_code_chars` | 供应商货号和别名最短长度 |
 | `availability.required` | 是否强制实时供货核验；默认 `true` |
 | `availability.document_url` | 供货表或库存文档地址 |
+| `availability.bound_catalog_roots` | 文档适用的商品库列表，必须与当前 `catalog_roots` 按顺序对应 |
 | `availability.scope` | 固定为 `all_sheets` |
 | `availability.sold_out_sheets` | 具有否决优先级的工作表列表 |
 | `availability.fresh_minutes` | 供货证据有效时间 |
@@ -44,9 +48,9 @@
 | `collection.delete_nonselected` | 完成后是否删除本次未采用记录 |
 | `deliverables.spec_chart_required` | 缺少规格图时 `verify` 是否失败 |
 
-`availability.required=false` 只能在用户明确表示不需要供货文档时设置。它会关闭采集前供货门禁；不要为了绕过文档打不开或查无结果而临时关闭。
+`availability.required=false` 只能在用户明确表示不需要供货文档时设置。它会关闭采集前供货门禁；不要为了绕过文档打不开、未提供新文档或查无结果而临时关闭。
 
-修改文档地址、售罄工作表或有效时间后，旧供货证据会自动失效，必须重新核验。
+修改文档地址、绑定商品库、售罄工作表或有效时间后，旧供货证据会自动失效，必须重新核验。`audit.valid` 只表示商品库、历史和配置结构可用于前期选品；`audit.collection_ready` 表示当前文档已配置并绑定，可进入供货核验和采集。
 
 ## Python 与依赖
 

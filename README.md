@@ -43,7 +43,7 @@ python -m pip install Pillow
 python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" init-config
 ```
 
-编辑 `<WORKSPACE>/.tiktok-shop-listing/config.json`，设置商品库目录、输出目录和实时供货文档。完整字段说明见 Skill 内的 `references/configuration.md`。
+编辑 `<WORKSPACE>/.tiktok-shop-listing/config.json`，设置商品库目录和输出目录。供货文档按品类独立配置：首次使用或换品类后，必须由用户手动重新提供文档，不能沿用以前品类的地址；填写地址时还要把当前 `catalog_roots` 写入 `availability.bound_catalog_roots`。完整字段说明见 Skill 内的 `references/configuration.md`。
 
 默认业务规则：
 
@@ -53,7 +53,7 @@ python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" init-confi
 - 价格低于 `50` 时改为 `50.01`，等于或高于 `50` 时保持原价。
 - 所有 SKU 库存改为 `19`。
 - 默认最终保留三张同款图片，颜色、型号、规格和变体以供应商资料为准。
-- 采集前必须按本机配置检查实时供货文档的所有工作表。
+- 换品类后旧供货文档自动失去采集资格；未提供新文档时仍可选品和准备扫同款资料。
+- 采集前必须按当前品类配置检查实时供货文档的所有工作表。
 
 需要跨电脑延续去重时，另行安全迁移工作区内的 `.tiktok-shop-listing/history.json`，不要把它提交到代码仓库。
-

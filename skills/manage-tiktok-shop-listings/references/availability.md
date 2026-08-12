@@ -4,6 +4,8 @@
 
 收到当前商品的销量链接后、记录链接和打开平台页面前执行。每次使用配置中的实时文档，不使用上一次结果、截图、本地商品目录或记忆代替。
 
+先运行 `audit`。只有 `collection_ready=true` 才继续；若为 `false`，停止并向用户索取当前品类供货文档。不得自行复用旧品类 URL。用户提供后，把 URL 写入 `availability.document_url`，并把当前 `catalog_roots` 同顺序写入 `availability.bound_catalog_roots`，再次运行 `audit`。
+
 1. 使用 `browser:control-in-app-browser` 打开 `availability.document_url`。
 2. 关闭不影响查看的登录提示；需要登录、验证码或权限时交给用户。
 3. 按 `Ctrl+F` 打开文档查找，输入历史条目的 `product_code`；仅在供应商明确提供时使用预留时记录的别名。

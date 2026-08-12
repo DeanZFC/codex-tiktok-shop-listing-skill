@@ -26,6 +26,7 @@
   "availability": {
     "required": true,
     "document_url": "",
+    "bound_catalog_roots": [],
     "scope": "all_sheets",
     "sold_out_sheets": [
       "售罄下架款"

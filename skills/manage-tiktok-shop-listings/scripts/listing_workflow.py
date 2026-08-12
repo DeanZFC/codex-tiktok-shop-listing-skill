@@ -141,6 +141,11 @@ def validate_config(config: dict) -> None:
         raise ValueError("availability.document_url must be a string")
     if document_url:
         validate_http_url(document_url, "availability.document_url")
+    bound_catalog_roots = availability.get("bound_catalog_roots")
+    if not isinstance(bound_catalog_roots, list) or not all(
+        isinstance(item, str) and item for item in bound_catalog_roots
+    ):
+        raise ValueError("availability.bound_catalog_roots must be a string list")
     if availability.get("scope") != "all_sheets":
         raise ValueError("availability.scope must be all_sheets")
     sold_out = availability.get("sold_out_sheets")
@@ -267,10 +272,21 @@ def config_fingerprint(config: dict) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def availability_fingerprint(config: dict) -> str:
-    availability = config["availability"]
+def availability_bound_catalog_paths(root: Path, config: dict) -> list[Path]:
+    paths = []
+    for value in config["availability"]["bound_catalog_roots"]:
+        raw = Path(value).expanduser()
+        paths.append((raw if raw.is_absolute() else root / raw).resolve())
+    return paths
+
+
+def availability_fingerprint(context: dict) -> str:
+    availability = context["config"]["availability"]
     payload = {
         "document_url": availability["document_url"],
+        "bound_catalog_roots": [
+            str(path) for path in availability_bound_catalog_paths(context["root"], context["config"])
+        ],
         "scope": availability["scope"],
         "sold_out_sheets": availability["sold_out_sheets"],
         "fresh_minutes": availability["fresh_minutes"],
@@ -689,7 +705,8 @@ def parse_timestamp(value: str, field_name: str) -> dt.datetime:
     return timestamp.astimezone(dt.timezone.utc)
 
 
-def require_availability(entry: dict, config: dict, *, require_fresh: bool) -> dict:
+def require_availability(entry: dict, context: dict, *, require_fresh: bool) -> dict:
+    config = context["config"]
     availability = config["availability"]
     evidence = entry.get("availability")
     if not isinstance(evidence, dict) or evidence.get("confirmed") is not True:
@@ -698,7 +715,7 @@ def require_availability(entry: dict, config: dict, *, require_fresh: bool) -> d
         "schema_version": EVIDENCE_VERSION,
         "product_canonical_code": entry["canonical_product_code"],
         "document_url": availability["document_url"],
-        "config_fingerprint": availability_fingerprint(config),
+        "config_fingerprint": availability_fingerprint(context),
         "scope": "all_sheets",
         "sold_out_sheets": availability["sold_out_sheets"],
     }
@@ -731,10 +748,29 @@ def require_availability(entry: dict, config: dict, *, require_fresh: bool) -> d
     return evidence
 
 
-def require_availability_url(config: dict) -> None:
+def availability_setup_errors(context: dict) -> list[str]:
+    config = context["config"]
     availability = config["availability"]
-    if availability["required"] and not availability["document_url"]:
-        raise ValueError("availability.document_url is empty; configure the supplier document first")
+    if not availability["required"]:
+        return []
+    errors = []
+    if not availability["document_url"]:
+        errors.append(
+            "availability.document_url is empty; ask the user for the current category supplier document"
+        )
+    bound_catalogs = availability_bound_catalog_paths(context["root"], config)
+    if bound_catalogs != context["catalogs"]:
+        errors.append(
+            "availability.bound_catalog_roots does not match catalog_roots; after changing category, "
+            "ask the user for its supplier document and bind it to the current catalog_roots"
+        )
+    return errors
+
+
+def require_availability_setup(context: dict) -> None:
+    errors = availability_setup_errors(context)
+    if errors:
+        raise ValueError("; ".join(errors))
 
 
 def command_confirm_availability(args: argparse.Namespace, context: dict) -> int:
@@ -742,7 +778,7 @@ def command_confirm_availability(args: argparse.Namespace, context: dict) -> int
     availability = config["availability"]
     if not availability["required"]:
         raise ValueError("Availability checks are disabled in config")
-    require_availability_url(config)
+    require_availability_setup(context)
     output_dir = Path(args.output_dir).expanduser().resolve()
     if not output_dir.is_dir() or not output_dir.is_relative_to(context["output_root"]):
         raise ValueError("Output directory must exist inside output_root")
@@ -769,7 +805,7 @@ def command_confirm_availability(args: argparse.Namespace, context: dict) -> int
             "confirmed": True,
             "product_canonical_code": entry["canonical_product_code"],
             "document_url": availability["document_url"],
-            "config_fingerprint": availability_fingerprint(config),
+            "config_fingerprint": availability_fingerprint(context),
             "query": query,
             "matched_text": matched_text,
             "match_type": "exact_product_code",
@@ -792,7 +828,7 @@ def command_confirm_availability(args: argparse.Namespace, context: dict) -> int
 
 def command_record_links(args: argparse.Namespace, context: dict) -> int:
     config = context["config"]
-    require_availability_url(config)
+    require_availability_setup(context)
     output_dir = Path(args.output_dir).expanduser().resolve()
     if not output_dir.is_dir() or not output_dir.is_relative_to(context["output_root"]):
         raise ValueError("Output directory must exist inside output_root")
@@ -808,7 +844,7 @@ def command_record_links(args: argparse.Namespace, context: dict) -> int:
             raise ValueError(f"Product status cannot record links: {entry.get('status')}")
         evidence = None
         if config["availability"]["required"]:
-            evidence = require_availability(entry, config, require_fresh=True)
+            evidence = require_availability(entry, context, require_fresh=True)
         previous_urls = entry.get("supplier_links", [])
         if previous_urls and previous_urls != urls and evidence is not None:
             checked_at = parse_timestamp(evidence["checked_at"], "availability check")
@@ -843,7 +879,7 @@ def command_record_links(args: argparse.Namespace, context: dict) -> int:
 
 def command_mark_collected(args: argparse.Namespace, context: dict) -> int:
     config = context["config"]
-    require_availability_url(config)
+    require_availability_setup(context)
     output_dir = Path(args.output_dir).expanduser().resolve()
     if not output_dir.is_dir() or not output_dir.is_relative_to(context["output_root"]):
         raise ValueError("Output directory must exist inside output_root")
@@ -868,7 +904,7 @@ def command_mark_collected(args: argparse.Namespace, context: dict) -> int:
                 f"missing={deliverable_result['missing']}, invalid={deliverable_result['invalid']}"
             )
         if config["availability"]["required"]:
-            evidence = require_availability(entry, config, require_fresh=True)
+            evidence = require_availability(entry, context, require_fresh=True)
             if evidence.get("recorded_links") != recorded_urls or evidence.get(
                 "recorded_links_at"
             ) != entry.get("links_recorded_at"):
@@ -890,11 +926,8 @@ def command_history(args: argparse.Namespace, context: dict) -> int:
 
 def command_audit(args: argparse.Namespace, context: dict) -> int:
     history = load_history(context["history"])
+    collection_errors = availability_setup_errors(context)
     config_errors = []
-    if context["config"]["availability"]["required"] and not context["config"]["availability"][
-        "document_url"
-    ]:
-        config_errors.append("availability.document_url is empty while availability.required is true")
     missing_catalogs = [str(path) for path in context["catalogs"] if not path.is_dir()]
     if missing_catalogs:
         config_errors.append("one or more configured catalog roots are missing")
@@ -907,11 +940,14 @@ def command_audit(args: argparse.Namespace, context: dict) -> int:
         except (KeyError, TypeError, ValueError) as exc:
             history_source_errors.append({"product_code": entry.get("product_code"), "error": str(exc)})
     valid = not config_errors and not missing_catalogs and not missing_sources and not history_source_errors
+    collection_ready = valid and not collection_errors
     payload = {
         "history_file": str(context["history"]),
         "config_fingerprint": config_fingerprint(context["config"]),
         "valid": valid,
+        "collection_ready": collection_ready,
         "config_errors": config_errors,
+        "collection_errors": collection_errors,
         "missing_catalog_roots": missing_catalogs,
         "total": len(history["products"]),
         "status_counts": dict(

@@ -14,7 +14,7 @@
 
 1. `catalog_roots`：一个或多个商品资料目录。
 2. `output_root`：按日期和 `001-货号` 保存结果的目录。
-3. `availability.document_url`：由用户手动提供的当前品类实时供货文档 URL。
+3. `availability.document_url`：由用户手动提供的当前品类实时供货与成本文档 URL。
 4. `availability.bound_catalog_roots`：确认该文档对应的商品库；填写与当前 `catalog_roots` 相同的列表和顺序。
 5. `availability.sold_out_sheets`：所有售罄、暂停供货或下架工作表名称。
 6. `deliverables`：交付文件名及规格图是否必需。
@@ -32,7 +32,7 @@
 | `product_discovery.ignore_directories` | 扫描商品库时跳过的目录名 |
 | `product_discovery.min_product_code_chars` | 供应商货号和别名最短长度 |
 | `availability.required` | 是否强制实时供货核验；默认 `true` |
-| `availability.document_url` | 供货表或库存文档地址 |
+| `availability.document_url` | 当前品类供货、库存及低价 SKU 成本取证文档地址 |
 | `availability.bound_catalog_roots` | 文档适用的商品库列表，必须与当前 `catalog_roots` 按顺序对应 |
 | `availability.scope` | 固定为 `all_sheets` |
 | `availability.sold_out_sheets` | 具有否决优先级的工作表列表 |
@@ -42,15 +42,17 @@
 | `copy.preferred_fields` | 优先整理的事实字段 |
 | `collection.min_links/max_links` | 接受的销量链接数量范围 |
 | `collection.final_image_count` | 最终商品图片准确数量 |
-| `collection.price_threshold` | 低于此值才改价，默认 `50.0` |
-| `collection.price_replacement` | 低价 SKU 的替换价格，默认 `50.01` |
+| `collection.price_threshold` | 采集原价严格低于此值时启用成本定价，固定为 `50.0` |
+| `collection.minimum_profit_rate` | 低价 SKU 相对供应商成本的最低加价率，默认且不得低于 `0.05` |
 | `collection.sku_inventory` | 所有 SKU 的目标库存，默认 `19` |
 | `collection.delete_nonselected` | 完成后是否删除本次未采用记录 |
 | `deliverables.spec_chart_required` | 缺少规格图时 `verify` 是否失败 |
 
-`availability.required=false` 只能在用户明确表示不需要供货文档时设置。它会关闭采集前供货门禁；不要为了绕过文档打不开、未提供新文档或查无结果而临时关闭。
+`collection.minimum_profit_rate=0.05` 表示在供应商成本上至少加价 `5%`，不是销售毛利率或扣除平台费、税费、运费后的净利润率。低价 SKU 的最低允许价为 `C * (1 + minimum_profit_rate)` 向上取整到分，最终价取采集原价与最低允许价中的较高者；采集原价等于或高于阈值时必须保持原价。脚本不允许把阈值改离 `50.0`，也不允许把最低加价率调低到 `5%` 以下。
 
-修改文档地址、绑定商品库、售罄工作表或有效时间后，旧供货证据会自动失效，必须重新核验。`audit.valid` 只表示商品库、历史和配置结构可用于前期选品；`audit.collection_ready` 表示当前文档已配置并绑定，可进入供货核验和采集。
+`availability.required=false` 只能在用户明确表示不需要供货文档时设置。它会关闭采集前供货门禁；不要为了绕过文档打不开、未提供新文档或查无结果而临时关闭。该设置也不能豁免低价 SKU 的成本证据：没有当前品类文档或无法确认成本时仍须停止。
+
+修改文档地址、绑定商品库、售罄工作表或有效时间后，旧供货证据会自动失效，必须重新核验。修改已记录链接、`price_threshold`、`minimum_profit_rate` 或其他定价相关配置后，旧价格证据也会失效，必须重新取得成本并运行 `record-pricing`。`audit.valid` 只表示商品库、历史和配置结构可用于前期选品；`audit.collection_ready` 表示当前文档已配置并绑定，可进入供货核验和采集，不表示当前商品的成本已经取得或可读。
 
 ## Python 与依赖
 

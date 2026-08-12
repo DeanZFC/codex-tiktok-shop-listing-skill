@@ -23,8 +23,56 @@
 - 供应商资料是颜色、型号、款式、规格、包装数量和配件组成的唯一事实来源。供应商只有一个变体时删除平台多余变体；供应商明确有多个变体时只保留逐一对应项及其 SKU 图片。
 - 只填写平台必填项和配置中的优先事实字段。无法确认的属性留空或删除。
 - 规格或尺寸只使用供应商数据，不猜单位或数值。
-- 对每个 SKU：价格严格低于 `collection.price_threshold` 时改为 `collection.price_replacement`；等于或高于阈值保持原价。所有 SKU 库存改为 `collection.sku_inventory`。
+- 所有 SKU 库存改为 `collection.sku_inventory`。
 - 保存后刷新或重新打开，逐项复核标题、内容、图片顺序、变体、属性、规格、价格和库存确实落盘。
+
+## 逐 SKU 定价与证据
+
+先确定最终保留的变体，并记录每个 SKU 在本次刚采集进入妙手、任何修改之前的原价 `P`。不得把已批量修改的价格、恢复任务后无法证明的价格或价格区间当作原价。触发条件按每个 SKU 独立判断：
+
+- `P >= collection.price_threshold`：最终价必须保持为 `P`，无需读取供应商成本。
+- `P < collection.price_threshold`：按 [availability.md](availability.md) 从当前品类供货文档取得该产品或 SKU 的供应商成本 `C`。币种、销售单位、件数、套装口径和 SKU 映射必须一致。
+- 低价 SKU 的最低允许价为 `ceil_cent(C * (1 + collection.minimum_profit_rate))`，即计算后向上取整到分；最终价必须严格等于 `max(P, 最低允许价)`。这里的 `0.05` 是在供应商成本上加价 `5%`，不是扣除平台费、税费、运费后的净利润率，也不是销售毛利率。
+- 全程使用十进制定点数计算，不使用二进制浮点近似或普通四舍五入。例如 `C=47.61` 时，`C*1.05=49.9905`，向上到分为 `50.00`。
+
+任一低价 SKU 无法确认成本、成本币种、计价单位或对应关系时停止；不得改价、保存、删除本次其他记录或完成历史状态。不同 SKU 成本不同时必须逐项计算，不能套用统一价格。
+
+把全部保留 SKU 写入 UTF-8 JSON。金额使用最多两位小数的正数十进制字符串，脚本保存时会规范为两位；`sku_key` 必须能唯一对应妙手中的颜色、尺码、型号或其组合：
+
+```json
+{
+  "skus": [
+    {
+      "sku_key": "Black / S",
+      "original_price": "49.99",
+      "supplier_cost": "47.61",
+      "final_price": "50.00",
+      "cost_sheet": "在售",
+      "cost_cell": "$H$2",
+      "cost_raw_text": "47.61",
+      "supplier_currency": "CNY",
+      "supplier_unit": "piece",
+      "supplier_sku_text": "Black / S",
+      "product_query": "SUPPLIER-CODE",
+      "product_cell": "$A$2",
+      "product_raw_text": "SUPPLIER-CODE",
+      "supplier_sku_cell": "$B$2"
+    }
+  ]
+}
+```
+
+原价等于或高于阈值时，所有成本字段必须省略，且 `final_price` 必须与 `original_price` 完全相同。原价低于阈值时示例中的成本、币种、单位、货号和供应商 SKU 字段全部必填；`supplier_currency` 必须与 `--currency` 一致，`supplier_unit` 必须与 `--sales-unit` 一致，`product_query` 必须是历史中的货号或别名。人工核验货号、供应商 SKU 和成本三个单元格都来自 `cost_sheet` 指定的工作表，脚本再强制它们行号相同。`supplier_sku_text` 必须忠实记录供货表变体，并与 `sku_key` 精确对应；标签格式不同时先人工确认后统一使用供货表的完整变体文字作为两者的共同键。若统一产品成本适用于多个 SKU，每个 SKU 都重复写入同一行的真实成本证据，但仍分别写明对应的供应商 SKU。
+
+在妙手填写最终价格之前运行：
+
+```bash
+python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" record-pricing \
+  "<OUTPUT_DIR>" --currency CNY --sales-unit piece \
+  --expected-sku-count 1 --sku-file "<PRICING.json>"
+```
+
+`--currency` 必须填写原价与成本共同使用的真实币种；`--sales-unit` 填妙手与供货文档共同使用的销售单位；先在妙手人工清点最终保留 SKU，再把总数传给 `--expected-sku-count`，JSON 行数必须完全相等。命令校验这个人工声明与 JSON 是否一致，但不能代替页面清点。价格证据绑定当前供货证据、已记录链接和相关配置；失败时停止。命令成功后，严格按 JSON 的 `final_price` 逐项填写妙手价格，再保存并刷新复核。
 
 ## 清理与完成
 
@@ -37,6 +85,8 @@
 - 至少一条合款记录可用。
 - 最终商品已保存并刷新复核。
 - 图片数量准确。
-- 变体、规格、价格和库存符合配置与供应商事实。
+- 变体、规格、价格和库存符合配置与供应商事实；人工清点确认价格证据覆盖全部保留 SKU。
 - 本次其余记录已删除。
 - 供货证据仍在有效期内；过期时已重新核验。
+
+`mark-collected` 会强制检查价格证据内部完整、行数符合人工声明并且仍绑定当前供货证据、链接和配置。它不能读取妙手扩展内部状态，因此仍必须人工确认实际 SKU 数量和最终价格。供货证据、已记录链接、阈值、最低成本加价率或其他相关配置发生变化后，必须重新取证并运行 `record-pricing`，不能沿用旧记录。

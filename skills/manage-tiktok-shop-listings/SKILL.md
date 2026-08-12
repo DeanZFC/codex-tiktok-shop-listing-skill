@@ -1,6 +1,6 @@
 ---
 name: manage-tiktok-shop-listings
-description: Manage category-agnostic TikTok Shop product selection and listing workflows from supplier folders, including configurable catalogs, permanent cross-folder de-duplication, English listing copy, a supplier-original scan image, an optional PNG specification chart, a mandatory configurable all-worksheet availability check, sales-ranked marketplace links, Microsoft Edge and manual Miaoshou-plugin collection, SKU price and inventory rules, image and variant cleanup, and final record deletion. Use when the user asks for the next product, prepares or edits a TikTok Shop listing, supplies sales-ranked product links, confirms Miaoshou collection, changes product categories, moves the workflow to another computer, or needs deleted low-sales products to remain permanently excluded.
+description: Manage category-agnostic TikTok Shop product selection and listing workflows from supplier folders, including configurable catalogs, permanent cross-folder de-duplication, English listing copy, a supplier-original scan image, an optional PNG specification chart, mandatory configurable all-worksheet availability and supplier-cost checks, sales-ranked marketplace links, Microsoft Edge and manual Miaoshou-plugin collection, evidence-backed SKU pricing and inventory rules, image and variant cleanup, and final record deletion. Use when the user asks for the next product, prepares or edits a TikTok Shop listing, supplies sales-ranked product links, confirms Miaoshou collection, changes product categories, moves the workflow to another computer, or needs deleted low-sales products to remain permanently excluded.
 ---
 
 # TikTok Shop 通用上架
@@ -15,7 +15,7 @@ description: Manage category-agnostic TikTok Shop product selection and listing 
 
 使用 `scripts/listing_workflow.py` 维护本机配置和永久历史。Skill 目录只保存程序；商品库、配置、历史、浏览器登录状态和妙手登录状态始终留在用户工作区，不得上传到 Skill 仓库。
 
-首次使用、换品类或换电脑时，完整读取 [configuration.md](references/configuration.md)。进入供货核验时读取 [availability.md](references/availability.md)。用户确认插件采集完成后读取 [miaoshou.md](references/miaoshou.md)。
+首次使用、换品类或换电脑时，完整读取 [configuration.md](references/configuration.md)。进入供货或成本核验时读取 [availability.md](references/availability.md)。用户确认插件采集完成后读取 [miaoshou.md](references/miaoshou.md)。
 
 ## 初始化
 
@@ -25,14 +25,14 @@ description: Manage category-agnostic TikTok Shop product selection and listing 
 python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" init-config
 ```
 
-编辑 `<WORKSPACE>/.tiktok-shop-listing/config.json`，至少设置正确的 `catalog_roots` 和 `output_root`。供货文档必须由用户针对当前品类重新提供；不得从旧品类、旧配置、历史或记忆复用。收到地址后，同时把当前 `catalog_roots` 原样写入 `availability.bound_catalog_roots`。运行：
+编辑 `<WORKSPACE>/.tiktok-shop-listing/config.json`，至少设置正确的 `catalog_roots` 和 `output_root`。供货文档必须由用户针对当前品类重新提供；不得从旧品类、旧配置、历史或记忆复用。该文档同时是低价 SKU 的供应商成本来源。收到地址后，同时把当前 `catalog_roots` 原样写入 `availability.bound_catalog_roots`。运行：
 
 ```bash
 python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" show-config
 python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" audit
 ```
 
-`audit.valid=true` 表示可以选品和准备扫同款资料；只有 `audit.collection_ready=true` 才能供货核验、记录销量链接或采集。文档未提供或未绑定时不要阻止前期选品，但进入采集阶段必须停止并向用户索取当前品类文档。
+`audit.valid=true` 表示可以选品和准备扫同款资料；只有 `audit.collection_ready=true` 才能供货核验、记录销量链接或采集。`collection_ready` 只确认文档配置和品类绑定有效，不代表已取得当前商品成本。文档未提供或未绑定时不要阻止前期选品，但进入采集阶段必须停止并向用户索取当前品类文档。
 
 换品类或修改 `catalog_roots` 时，先把 `availability.document_url` 清空并把 `availability.bound_catalog_roots` 设为 `[]`。即使旧 URL 看起来仍可访问也不得沿用；必须等待用户手动提供新文档，再绑定到当前商品目录。
 
@@ -140,20 +140,30 @@ python "<SKILL_DIR>/scripts/open_product_urls.py" "URL_1" "URL_2" "URL_3"
 
 ## 妙手编辑与完成
 
-用户确认采集完成后，按 [miaoshou.md](references/miaoshou.md) 操作。只选择销量顺序中第一条采集成功且与供应商款式一致的记录；编辑保存并复核后删除本次其余记录，绝不删除最终采用记录。
+用户确认采集完成后，按 [miaoshou.md](references/miaoshou.md) 操作。只选择销量顺序中第一条采集成功且与供应商款式一致的记录。先记录每个保留 SKU 的未修改采集原价；任一原价严格低于 `collection.price_threshold` 时，重新打开当前品类供货文档并取得精确对应的供应商成本。币种、计价单位或 SKU 映射不清时停止。
 
-最终完成前，如果供货证据超过配置的有效分钟数，重新检查所有工作表并再次运行 `confirm-availability`。确认图片数量、变体、价格、库存、标题、内容、规格和清理结果全部正确后运行：
+按 `miaoshou.md` 计算最终价，把全部保留 SKU 写入价格 JSON，并在妙手改价前运行：
+
+```bash
+python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" record-pricing \
+  "<OUTPUT_DIR>" --currency CNY --sales-unit piece \
+  --expected-sku-count 1 --sku-file "<PRICING.json>"
+```
+
+`record-pricing` 必须通过后才能填写价格、保存商品和删除本次其余记录。编辑保存并复核后删除本次其余记录，绝不删除最终采用记录。
+
+最终完成前，如果供货证据超过配置的有效分钟数，重新检查所有工作表并再次运行 `confirm-availability`；已有价格证据会随其绑定的供货证据、链接或相关配置失效，失效后必须重新取证并运行 `record-pricing`。确认图片数量、变体、价格、库存、标题、内容、规格和清理结果全部正确后运行：
 
 ```bash
 python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" mark-collected \
   "<OUTPUT_DIR>" --resolved-url "FINAL_URL_1"
 ```
 
-按实际链接数量重复 `--resolved-url`。任一记录仍在处理中、最终编辑未保存、图片数量不符、变体不合供应商资料、其余记录未删完或供货证据过期时，不得完成标记。
+按实际链接数量重复 `--resolved-url`。`mark-collected` 强制要求有效且行数符合人工 SKU 数量声明的价格证据；妙手实际保留 SKU 总数仍需在页面人工清点。任一记录仍在处理中、最终编辑未保存、图片数量不符、变体不合供应商资料、其余记录未删完、供货或价格证据过期时，不得完成标记。
 
 ## 隔离与安全
 
-测试状态变更命令时始终使用临时工作区。真实工作区只执行用户当前商品所需的 `reserve`、`confirm-availability`、`record-links` 和 `mark-collected`。
+测试状态变更命令时始终使用临时工作区。真实工作区只执行用户当前商品所需的 `reserve`、`confirm-availability`、`record-links`、`record-pricing` 和 `mark-collected`。
 
 不要提交或上传以下内容：
 

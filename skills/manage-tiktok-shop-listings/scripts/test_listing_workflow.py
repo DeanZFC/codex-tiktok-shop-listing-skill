@@ -36,6 +36,7 @@ class ListingWorkflowTests(unittest.TestCase):
         self.save_config(config)
         self.catalog = self.root / "选品" / "测试分类"
         self.catalog.mkdir(parents=True)
+        self.pricing_file_index = 0
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -106,6 +107,58 @@ class ListingWorkflowTests(unittest.TestCase):
             "clear",
         )
 
+    def record_pricing(
+        self,
+        output_dir: Path,
+        skus: list[dict] | None = None,
+        *,
+        currency: str = "CNY",
+        sales_unit: str = "piece",
+        expected_sku_count: int | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        self.pricing_file_index += 1
+        sku_file = self.root / f"pricing-{self.pricing_file_index}.json"
+        rows = skus if skus is not None else [
+            {
+                "sku_key": "Default",
+                "original_price": "50.00",
+                "final_price": "50.00",
+            }
+        ]
+        sku_file.write_text(
+            json.dumps({"skus": rows}, ensure_ascii=False), encoding="utf-8"
+        )
+        return self.run_cli(
+            "record-pricing",
+            str(output_dir),
+            "--currency",
+            currency,
+            "--sales-unit",
+            sales_unit,
+            "--expected-sku-count",
+            str(expected_sku_count if expected_sku_count is not None else len(rows)),
+            "--sku-file",
+            str(sku_file),
+        )
+
+    def prepare_for_pricing(
+        self,
+        name: str,
+        code: str,
+        *,
+        deliverables: bool = False,
+    ) -> Path:
+        output_dir = self.reserve(name, code)
+        if deliverables:
+            self.prepare_deliverables(output_dir)
+        confirmed = self.confirm(output_dir, code)
+        self.assertEqual(confirmed.returncode, 0, confirmed.stderr)
+        recorded = self.run_cli(
+            "record-links", str(output_dir), f"https://example.com/{code.casefold()}"
+        )
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        return output_dir
+
     def entry_for(self, output_dir: Path) -> dict:
         relative = output_dir.relative_to(self.root).as_posix()
         return next(
@@ -133,7 +186,8 @@ class ListingWorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["config"]["collection"]["price_threshold"], 50.0)
-        self.assertEqual(payload["config"]["collection"]["price_replacement"], 50.01)
+        self.assertEqual(payload["config"]["collection"]["minimum_profit_rate"], 0.05)
+        self.assertNotIn("price_replacement", payload["config"]["collection"])
         self.assertEqual(payload["config"]["collection"]["sku_inventory"], 19)
         duplicate = self.run_cli("init-config")
         self.assertEqual(duplicate.returncode, 2)
@@ -222,6 +276,32 @@ class ListingWorkflowTests(unittest.TestCase):
         invalid = self.run_cli("show-config")
         self.assertEqual(invalid.returncode, 2)
         self.assertIn("sku_inventory", invalid.stderr)
+
+        config["collection"]["sku_inventory"] = 19
+        config["collection"]["minimum_profit_rate"] = False
+        self.save_config(config)
+        invalid_rate = self.run_cli("show-config")
+        self.assertEqual(invalid_rate.returncode, 2)
+        self.assertIn("minimum_profit_rate", invalid_rate.stderr)
+
+        config["collection"]["minimum_profit_rate"] = 1
+        self.save_config(config)
+        out_of_range_rate = self.run_cli("show-config")
+        self.assertEqual(out_of_range_rate.returncode, 2)
+        self.assertIn("minimum_profit_rate", out_of_range_rate.stderr)
+
+        config["collection"]["minimum_profit_rate"] = 0.049
+        self.save_config(config)
+        below_minimum_rate = self.run_cli("show-config")
+        self.assertEqual(below_minimum_rate.returncode, 2)
+        self.assertIn("minimum_profit_rate", below_minimum_rate.stderr)
+
+        config["collection"]["minimum_profit_rate"] = 0.05
+        config["collection"]["price_threshold"] = 49.99
+        self.save_config(config)
+        changed_threshold = self.run_cli("show-config")
+        self.assertEqual(changed_threshold.returncode, 2)
+        self.assertIn("price_threshold", changed_threshold.stderr)
 
     def test_eligible_reserve_and_permanent_source_deduplication(self) -> None:
         source = self.make_product("厨房收纳架-A")
@@ -351,6 +431,8 @@ class ListingWorkflowTests(unittest.TestCase):
         record = self.run_cli("record-links", str(output_dir), *urls)
         self.assertEqual(record.returncode, 0, record.stderr)
         self.assertEqual(self.entry_for(output_dir)["supplier_links"], urls)
+        pricing = self.record_pricing(output_dir)
+        self.assertEqual(pricing.returncode, 0, pricing.stderr)
         collected = self.run_cli(
             "mark-collected",
             str(output_dir),
@@ -395,6 +477,447 @@ class ListingWorkflowTests(unittest.TestCase):
         self.assertEqual(wrong.returncode, 2)
         self.assertIn("recorded product code", wrong.stderr)
 
+    def test_record_pricing_uses_decimal_ceiling_and_preserves_prices_at_or_above_threshold(self) -> None:
+        output_dir = self.prepare_for_pricing("多尺码外套", "COAT-DECIMAL")
+        skus = [
+            {
+                "sku_key": "Black / S",
+                "original_price": "49.99",
+                "supplier_cost": "47.61",
+                "final_price": "50.00",
+                "cost_sheet": "在售",
+                "cost_cell": "$H$2",
+                "cost_raw_text": "47.61",
+                "supplier_currency": "CNY",
+                "supplier_unit": "piece",
+                "supplier_sku_text": "Black / S",
+                "product_query": "COAT-DECIMAL",
+                "product_cell": "$A$2",
+                "product_raw_text": "COAT-DECIMAL",
+                "supplier_sku_cell": "$B$2",
+            },
+            {
+                "sku_key": "Black / M",
+                "original_price": "49.99",
+                "supplier_cost": "47.60",
+                "final_price": "49.99",
+                "cost_sheet": "在售",
+                "cost_cell": "$H$3",
+                "cost_raw_text": "47.60",
+                "supplier_currency": "CNY",
+                "supplier_unit": "piece",
+                "supplier_sku_text": "Black / M",
+                "product_query": "COAT-DECIMAL",
+                "product_cell": "$A$3",
+                "product_raw_text": "COAT-DECIMAL",
+                "supplier_sku_cell": "$B$3",
+            },
+            {
+                "sku_key": "Black / L",
+                "original_price": "49.99",
+                "supplier_cost": "47.62",
+                "final_price": "50.01",
+                "cost_sheet": "在售",
+                "cost_cell": "$H$4",
+                "cost_raw_text": "CNY 47.62",
+                "supplier_currency": "CNY",
+                "supplier_unit": "piece",
+                "supplier_sku_text": "Black / L",
+                "product_query": "COAT-DECIMAL",
+                "product_cell": "$A$4",
+                "product_raw_text": "COAT-DECIMAL",
+                "supplier_sku_cell": "$B$4",
+            },
+            {
+                "sku_key": "Black / XL",
+                "original_price": "50.00",
+                "final_price": "50.00",
+            },
+            {
+                "sku_key": "Black / 2XL",
+                "original_price": "88.00",
+                "final_price": "88.00",
+            },
+            {
+                "sku_key": "Black / 3XL",
+                "original_price": "0.10",
+                "supplier_cost": "0.10",
+                "final_price": "0.11",
+                "cost_sheet": "在售",
+                "cost_cell": "$H$7",
+                "cost_raw_text": "0.10",
+                "supplier_currency": "CNY",
+                "supplier_unit": "piece",
+                "supplier_sku_text": "Black / 3XL",
+                "product_query": "COAT-DECIMAL",
+                "product_cell": "$A$7",
+                "product_raw_text": "COAT-DECIMAL",
+                "supplier_sku_cell": "$B$7",
+            },
+            {
+                "sku_key": "Black / 4XL",
+                "original_price": "30.00",
+                "supplier_cost": "30.01",
+                "final_price": "31.52",
+                "cost_sheet": "在售",
+                "cost_cell": "$H$8",
+                "cost_raw_text": "CNY 30.01",
+                "supplier_currency": "CNY",
+                "supplier_unit": "piece",
+                "supplier_sku_text": "Black / 4XL",
+                "product_query": "COAT-DECIMAL",
+                "product_cell": "$A$8",
+                "product_raw_text": "COAT-DECIMAL",
+                "supplier_sku_cell": "$B$8",
+            },
+        ]
+        result = self.record_pricing(output_dir, skus)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        confirmation = self.entry_for(output_dir)["pricing_confirmation"]
+        self.assertEqual(confirmation["currency"], "CNY")
+        self.assertEqual(
+            [sku["sku_key"] for sku in confirmation["skus"]],
+            [sku["sku_key"] for sku in skus],
+        )
+        self.assertEqual(
+            [sku["final_price"] for sku in confirmation["skus"]],
+            [sku["final_price"] for sku in skus],
+        )
+        self.assertEqual(
+            [sku.get("minimum_price") for sku in confirmation["skus"]],
+            ["50.00", "49.98", "50.01", None, None, "0.11", "31.52"],
+        )
+
+    def test_record_pricing_rejects_wrong_final_price_at_decimal_boundaries(self) -> None:
+        output_dir = self.prepare_for_pricing("边界价格商品", "PRICE-BOUNDARY")
+        invalid_cases = [
+            ("49.99", "47.61", "49.99"),
+            ("49.99", "47.62", "50.00"),
+            ("49.99", "40.00", "42.00"),
+            ("50.00", None, "50.01"),
+            ("60.00", None, "63.00"),
+        ]
+        for index, (original, cost, final) in enumerate(invalid_cases, start=1):
+            sku = {
+                "sku_key": f"Case {index}",
+                "original_price": original,
+                "final_price": final,
+            }
+            if cost is not None:
+                sku.update(
+                    supplier_cost=cost,
+                    cost_sheet="在售",
+                    cost_cell=f"$H${index + 1}",
+                    cost_raw_text=cost,
+                    supplier_currency="CNY",
+                    supplier_unit="piece",
+                    supplier_sku_text=f"Case {index}",
+                    product_query="PRICE-BOUNDARY",
+                    product_cell=f"$A${index + 1}",
+                    product_raw_text="PRICE-BOUNDARY",
+                    supplier_sku_cell=f"$B${index + 1}",
+                )
+            with self.subTest(original=original, cost=cost, final=final):
+                result = self.record_pricing(output_dir, [sku])
+                self.assertEqual(result.returncode, 2)
+                self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+    def test_record_pricing_requires_positive_plain_money_strings_with_at_most_two_decimals(self) -> None:
+        output_dir = self.prepare_for_pricing("金额格式商品", "PRICE-FORMAT")
+        invalid_originals = [49.99, "49.999", "0", "-1.00", "NaN", "Infinity", "1e1", ""]
+        for original in invalid_originals:
+            sku = {
+                "sku_key": "Default",
+                "original_price": original,
+                "supplier_cost": "40.00",
+                "final_price": "49.99",
+                "cost_sheet": "在售",
+                "cost_cell": "$H$2",
+                "cost_raw_text": "40.00",
+                "supplier_currency": "CNY",
+                "supplier_unit": "piece",
+                "supplier_sku_text": "Default",
+                "product_query": "PRICE-FORMAT",
+                "product_cell": "$A$2",
+                "product_raw_text": "PRICE-FORMAT",
+                "supplier_sku_cell": "$B$2",
+            }
+            with self.subTest(original=original):
+                result = self.record_pricing(output_dir, [sku])
+                self.assertEqual(result.returncode, 2)
+                self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+        for field, value in (("supplier_cost", "47.611"), ("final_price", "50.001")):
+            sku = {
+                "sku_key": "Default",
+                "original_price": "49.99",
+                "supplier_cost": "47.61",
+                "final_price": "50.00",
+                "cost_sheet": "在售",
+                "cost_cell": "$H$2",
+                "cost_raw_text": "47.61",
+                "supplier_currency": "CNY",
+                "supplier_unit": "piece",
+                "supplier_sku_text": "Default",
+                "product_query": "PRICE-FORMAT",
+                "product_cell": "$A$2",
+                "product_raw_text": "PRICE-FORMAT",
+                "supplier_sku_cell": "$B$2",
+            }
+            sku[field] = value
+            with self.subTest(field=field, value=value):
+                result = self.record_pricing(output_dir, [sku])
+                self.assertEqual(result.returncode, 2)
+                self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+    def test_low_price_sku_requires_complete_supplier_cost_evidence(self) -> None:
+        output_dir = self.prepare_for_pricing("成本证据商品", "COST-EVIDENCE")
+        complete = {
+            "sku_key": "Black / S",
+            "original_price": "49.99",
+            "supplier_cost": "47.61",
+            "final_price": "50.00",
+            "cost_sheet": "在售",
+            "cost_cell": "$H$2",
+            "cost_raw_text": "47.61",
+            "supplier_currency": "CNY",
+            "supplier_unit": "piece",
+            "supplier_sku_text": "Black / S",
+            "product_query": "COST-EVIDENCE",
+            "product_cell": "$A$2",
+            "product_raw_text": "COST-EVIDENCE",
+            "supplier_sku_cell": "$B$2",
+        }
+        for missing_field in (
+            "supplier_cost",
+            "cost_sheet",
+            "cost_cell",
+            "cost_raw_text",
+            "supplier_currency",
+            "supplier_unit",
+            "supplier_sku_text",
+            "product_query",
+            "product_cell",
+            "product_raw_text",
+            "supplier_sku_cell",
+        ):
+            sku = dict(complete)
+            del sku[missing_field]
+            with self.subTest(missing_field=missing_field):
+                result = self.record_pricing(output_dir, [sku])
+                self.assertEqual(result.returncode, 2)
+                self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+        bad_cell = dict(complete, cost_cell="H0")
+        result = self.record_pricing(output_dir, [bad_cell])
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+        mismatched_currency = dict(complete, supplier_currency="USD")
+        self.assertEqual(self.record_pricing(output_dir, [mismatched_currency]).returncode, 2)
+        mismatched_unit = dict(complete, supplier_unit="set")
+        self.assertEqual(self.record_pricing(output_dir, [mismatched_unit]).returncode, 2)
+        mismatched_sku = dict(complete, supplier_sku_text="Black / M")
+        self.assertEqual(self.record_pricing(output_dir, [mismatched_sku]).returncode, 2)
+
+        mismatched_product = dict(complete, product_query="OTHER-CODE")
+        self.assertEqual(self.record_pricing(output_dir, [mismatched_product]).returncode, 2)
+        adjacent_row = dict(complete, cost_cell="$H$3")
+        self.assertEqual(self.record_pricing(output_dir, [adjacent_row]).returncode, 2)
+
+        mismatched_raw_text = dict(complete, cost_raw_text="46.61")
+        result = self.record_pricing(output_dir, [mismatched_raw_text])
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+        sold_out_cost = dict(complete, cost_sheet="售罄下架款")
+        result = self.record_pricing(output_dir, [sold_out_cost])
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+        negative_raw = dict(complete, cost_raw_text="-47.61")
+        self.assertEqual(self.record_pricing(output_dir, [negative_raw]).returncode, 2)
+        percent_raw = dict(complete, cost_raw_text="47.61%")
+        self.assertEqual(self.record_pricing(output_dir, [percent_raw]).returncode, 2)
+        wrong_currency_raw = dict(complete, cost_raw_text="USD 47.61")
+        self.assertEqual(self.record_pricing(output_dir, [wrong_currency_raw]).returncode, 2)
+
+    def test_record_pricing_requires_declared_retained_sku_count(self) -> None:
+        output_dir = self.prepare_for_pricing("SKU数量商品", "SKU-COUNT")
+        rows = [
+            {"sku_key": "Black / S", "original_price": "50.00", "final_price": "50.00"},
+            {"sku_key": "Black / M", "original_price": "51.00", "final_price": "51.00"},
+        ]
+        missing_row = self.record_pricing(output_dir, rows[:1], expected_sku_count=2)
+        self.assertEqual(missing_row.returncode, 2)
+        completed = self.record_pricing(output_dir, rows, expected_sku_count=2)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        evidence = self.entry_for(output_dir)["pricing_confirmation"]
+        self.assertEqual(evidence["expected_sku_count"], 2)
+        self.assertEqual(len(evidence["skus"]), 2)
+
+    def test_record_pricing_rejects_invalid_currency_and_normalized_duplicate_skus(self) -> None:
+        output_dir = self.prepare_for_pricing("币种与SKU商品", "SKU-NORMALIZE")
+        valid = [{"sku_key": "Default", "original_price": "50.00", "final_price": "50.00"}]
+        for currency in ("CN", "CNY1", "ZZZ", "¥", ""):
+            with self.subTest(currency=currency):
+                result = self.record_pricing(output_dir, valid, currency=currency)
+                self.assertEqual(result.returncode, 2)
+                self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+        duplicates = [
+            {"sku_key": " Black / Ｓ ", "original_price": "50.00", "final_price": "50.00"},
+            {"sku_key": "black / s", "original_price": "51.00", "final_price": "51.00"},
+        ]
+        duplicate_result = self.record_pricing(output_dir, duplicates)
+        self.assertEqual(duplicate_result.returncode, 2)
+        self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+        empty_result = self.record_pricing(output_dir, [])
+        self.assertEqual(empty_result.returncode, 2)
+        self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+    def test_record_pricing_requires_links_and_fresh_availability(self) -> None:
+        output_dir = self.reserve("定价状态商品", "PRICE-STATE")
+        self.assertEqual(self.confirm(output_dir, "PRICE-STATE").returncode, 0)
+        before_links = self.record_pricing(output_dir)
+        self.assertEqual(before_links.returncode, 2)
+
+        recorded = self.run_cli("record-links", str(output_dir), "https://example.com/state")
+        self.assertEqual(recorded.returncode, 0, recorded.stderr)
+        history = self.load_history()
+        entry = next(item for item in history["products"] if item["product_code"] == "PRICE-STATE")
+        entry["availability"]["checked_at"] = (
+            dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=2)
+        ).isoformat(timespec="microseconds")
+        self.save_history(history)
+        stale = self.record_pricing(output_dir)
+        self.assertEqual(stale.returncode, 2)
+        self.assertIn("stale", stale.stderr.casefold())
+        self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+    def test_confirm_and_record_links_clear_previous_pricing_confirmation(self) -> None:
+        output_dir = self.prepare_for_pricing("证据更新商品", "PRICE-REFRESH")
+        first = self.record_pricing(output_dir)
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        reconfirm = self.confirm(output_dir, "PRICE-REFRESH")
+        self.assertEqual(reconfirm.returncode, 0, reconfirm.stderr)
+        self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+        second = self.record_pricing(output_dir)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        same_links = self.run_cli(
+            "record-links", str(output_dir), "https://example.com/price-refresh"
+        )
+        self.assertEqual(same_links.returncode, 0, same_links.stderr)
+        self.assertNotIn("pricing_confirmation", self.entry_for(output_dir))
+
+    def test_pricing_evidence_binds_availability_links_and_pricing_config(self) -> None:
+        output_dir = self.prepare_for_pricing(
+            "定价证据绑定商品", "PRICE-BINDING", deliverables=True
+        )
+        pricing = self.record_pricing(output_dir)
+        self.assertEqual(pricing.returncode, 0, pricing.stderr)
+
+        history = self.load_history()
+        entry = next(item for item in history["products"] if item["product_code"] == "PRICE-BINDING")
+        confirmation = entry["pricing_confirmation"]
+        self.assertEqual(
+            confirmation["availability_checked_at"], entry["availability"]["checked_at"]
+        )
+        self.assertEqual(
+            confirmation["availability_config_fingerprint"],
+            entry["availability"]["config_fingerprint"],
+        )
+        self.assertEqual(confirmation["recorded_links"], entry["supplier_links"])
+        self.assertEqual(confirmation["links_recorded_at"], entry["links_recorded_at"])
+        checked_at = dt.datetime.fromisoformat(entry["availability"]["checked_at"])
+        entry["availability"]["checked_at"] = (checked_at + dt.timedelta(microseconds=1)).isoformat(
+            timespec="microseconds"
+        )
+        self.save_history(history)
+        mismatched_availability = self.run_cli(
+            "mark-collected",
+            str(output_dir),
+            "--resolved-url",
+            "https://example.com/price-binding/long",
+        )
+        self.assertEqual(mismatched_availability.returncode, 2)
+        self.assertIn("pricing", mismatched_availability.stderr.casefold())
+
+        self.assertEqual(self.confirm(output_dir, "PRICE-BINDING").returncode, 0)
+        refreshed = self.record_pricing(output_dir)
+        self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+
+        history = self.load_history()
+        entry = next(item for item in history["products"] if item["product_code"] == "PRICE-BINDING")
+        tampered_links = ["https://example.com/replaced-outside-workflow"]
+        tampered_time = dt.datetime.now(dt.timezone.utc).astimezone().isoformat(
+            timespec="microseconds"
+        )
+        entry["supplier_links"] = tampered_links
+        entry["links_recorded_at"] = tampered_time
+        entry["availability"]["recorded_links"] = tampered_links
+        entry["availability"]["recorded_links_at"] = tampered_time
+        self.save_history(history)
+        mismatched_links = self.run_cli(
+            "mark-collected",
+            str(output_dir),
+            "--resolved-url",
+            "https://example.com/replaced-outside-workflow/long",
+        )
+        self.assertEqual(mismatched_links.returncode, 2)
+        self.assertIn("pricing", mismatched_links.stderr.casefold())
+
+        self.assertEqual(self.confirm(output_dir, "PRICE-BINDING").returncode, 0)
+        refreshed = self.record_pricing(output_dir)
+        self.assertEqual(refreshed.returncode, 0, refreshed.stderr)
+        config = self.load_config()
+        config["collection"]["minimum_profit_rate"] = 0.06
+        self.save_config(config)
+        changed_config = self.run_cli(
+            "mark-collected",
+            str(output_dir),
+            "--resolved-url",
+            "https://example.com/price-binding/long",
+        )
+        self.assertEqual(changed_config.returncode, 2)
+        self.assertIn("pricing", changed_config.stderr.casefold())
+
+    def test_modified_pricing_sku_evidence_is_rejected_at_completion(self) -> None:
+        output_dir = self.prepare_for_pricing(
+            "定价防篡改商品", "PRICE-TAMPER", deliverables=True
+        )
+        pricing = self.record_pricing(output_dir)
+        self.assertEqual(pricing.returncode, 0, pricing.stderr)
+        history = self.load_history()
+        entry = next(item for item in history["products"] if item["product_code"] == "PRICE-TAMPER")
+        entry["pricing_confirmation"]["skus"][0]["final_price"] = "50.01"
+        self.save_history(history)
+        result = self.run_cli(
+            "mark-collected",
+            str(output_dir),
+            "--resolved-url",
+            "https://example.com/price-tamper/long",
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("pricing", result.stderr.casefold())
+
+    def test_mark_collected_requires_pricing_confirmation(self) -> None:
+        output_dir = self.prepare_for_pricing(
+            "缺少定价确认商品", "PRICE-MISSING", deliverables=True
+        )
+        result = self.run_cli(
+            "mark-collected",
+            str(output_dir),
+            "--resolved-url",
+            "https://example.com/price-missing/long",
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("pricing", result.stderr.casefold())
+        self.assertEqual(self.entry_for(output_dir)["status"], "awaiting_miaoshou_collection")
+
     def test_stale_evidence_and_link_replacement_require_recheck(self) -> None:
         output_dir = self.reserve("数据线", "CABLE-2401")
         self.prepare_deliverables(output_dir)
@@ -408,6 +931,8 @@ class ListingWorkflowTests(unittest.TestCase):
         self.assertEqual(self.confirm(output_dir, "CABLE-2401").returncode, 0)
         replacement = self.run_cli("record-links", str(output_dir), "https://example.com/replacement")
         self.assertEqual(replacement.returncode, 0, replacement.stderr)
+        pricing = self.record_pricing(output_dir)
+        self.assertEqual(pricing.returncode, 0, pricing.stderr)
         history = self.load_history()
         entry = next(item for item in history["products"] if item["product_code"] == "CABLE-2401")
         entry["availability"]["checked_at"] = (
@@ -433,7 +958,7 @@ class ListingWorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("config_fingerprint", result.stderr)
 
-    def test_availability_can_be_explicitly_disabled_in_local_config(self) -> None:
+    def test_availability_can_be_disabled_for_links_and_high_prices(self) -> None:
         config = self.load_config()
         config["availability"]["required"] = False
         config["availability"]["document_url"] = ""
@@ -442,13 +967,28 @@ class ListingWorkflowTests(unittest.TestCase):
         self.prepare_deliverables(output_dir)
         record = self.run_cli("record-links", str(output_dir), "https://example.com/item")
         self.assertEqual(record.returncode, 0, record.stderr)
-        collected = self.run_cli(
-            "mark-collected",
-            str(output_dir),
-            "--resolved-url",
-            "https://example.com/item/long",
-        )
-        self.assertEqual(collected.returncode, 0, collected.stderr)
+        pricing = self.record_pricing(output_dir)
+        self.assertEqual(pricing.returncode, 0, pricing.stderr)
+        self.assertIn("pricing_confirmation", self.entry_for(output_dir))
+
+        low_price = [{
+            "sku_key": "Default",
+            "original_price": "49.99",
+            "supplier_cost": "40.00",
+            "final_price": "49.99",
+            "cost_sheet": "在售",
+            "cost_cell": "$H$2",
+            "cost_raw_text": "40.00",
+            "supplier_currency": "CNY",
+            "supplier_unit": "piece",
+            "supplier_sku_text": "Default",
+            "product_query": "FAN-6600",
+            "product_cell": "$A$2",
+            "product_raw_text": "FAN-6600",
+            "supplier_sku_cell": "$B$2",
+        }]
+        blocked = self.record_pricing(output_dir, low_price)
+        self.assertEqual(blocked.returncode, 2)
 
     def test_verify_respects_optional_and_required_spec_chart(self) -> None:
         output_dir = self.reserve("水杯", "CUP-9000")
@@ -496,6 +1036,8 @@ class ListingWorkflowTests(unittest.TestCase):
             self.run_cli("record-links", str(output_dir), "https://example.com/item").returncode,
             0,
         )
+        pricing = self.record_pricing(output_dir)
+        self.assertEqual(pricing.returncode, 0, pricing.stderr)
         result = self.run_cli(
             "mark-collected",
             str(output_dir),
@@ -514,6 +1056,8 @@ class ListingWorkflowTests(unittest.TestCase):
             self.run_cli("record-links", str(output_dir), "https://example.com/item").returncode,
             0,
         )
+        pricing = self.record_pricing(output_dir)
+        self.assertEqual(pricing.returncode, 0, pricing.stderr)
         self.assertEqual(
             self.run_cli(
                 "mark-collected",

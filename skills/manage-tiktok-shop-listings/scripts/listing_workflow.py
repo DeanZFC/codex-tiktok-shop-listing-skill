@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unicodedata
 from contextlib import contextmanager
+from decimal import Decimal, InvalidOperation, ROUND_CEILING
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -26,9 +27,17 @@ else:
 
 HISTORY_VERSION = 1
 EVIDENCE_VERSION = 1
+PRICING_EVIDENCE_VERSION = 1
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 NUMBERED_RE = re.compile(r"^(\d{3})-(.+)$")
 CELL_REFERENCE_RE = re.compile(r"^\$?[A-Z]{1,3}\$?[1-9]\d*$", re.IGNORECASE)
+CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+MONEY_RE = re.compile(r"^(?:0|[1-9]\d*)(?:\.\d{1,2})?$")
+NUMBER_TOKEN_RE = re.compile(r"(?<![\d.])\d+(?:\.\d+)?(?![\d.])")
+SUPPORTED_CURRENCIES = {
+    "AUD", "CAD", "CNY", "EUR", "GBP", "HKD", "IDR", "JPY", "KRW", "MYR",
+    "MXN", "PHP", "PLN", "SAR", "SGD", "THB", "TRY", "TWD", "USD", "VND",
+}
 WINDOWS_INVALID_CHARS = set('<>:"/\\|?*')
 WINDOWS_RESERVED_NAMES = {
     "CON",
@@ -40,6 +49,7 @@ WINDOWS_RESERVED_NAMES = {
 }
 CONFIRMABLE_STATUSES = {"awaiting_manual_scan", "awaiting_miaoshou_collection"}
 RECORD_LINK_STATUSES = {"awaiting_manual_scan", "awaiting_miaoshou_collection"}
+MONEY_QUANTUM = Decimal("0.01")
 
 
 def configure_stdio() -> None:
@@ -170,12 +180,14 @@ def validate_config(config: dict) -> None:
         collection["price_threshold"], bool
     ) or not math.isfinite(collection["price_threshold"]):
         raise ValueError("collection.price_threshold must be numeric")
-    if not isinstance(collection.get("price_replacement"), (int, float)) or isinstance(
-        collection["price_replacement"], bool
-    ) or not math.isfinite(collection["price_replacement"]):
-        raise ValueError("collection.price_replacement must be numeric")
-    if collection["price_replacement"] <= collection["price_threshold"]:
-        raise ValueError("collection.price_replacement must be greater than price_threshold")
+    if collection["price_threshold"] != 50:
+        raise ValueError("collection.price_threshold must remain 50.0")
+    if not isinstance(collection.get("minimum_profit_rate"), (int, float)) or isinstance(
+        collection["minimum_profit_rate"], bool
+    ) or not math.isfinite(collection["minimum_profit_rate"]):
+        raise ValueError("collection.minimum_profit_rate must be numeric")
+    if not 0.05 <= collection["minimum_profit_rate"] < 1:
+        raise ValueError("collection.minimum_profit_rate must be at least 0.05 and less than 1")
     if type(collection.get("sku_inventory")) is not int or collection["sku_inventory"] < 0:
         raise ValueError("collection.sku_inventory must be a non-negative integer")
     if collection.get("browser") != "edge":
@@ -232,6 +244,7 @@ def load_config(path: Path) -> dict:
         raise ValueError(f"Config does not exist: {path}. Run init-config first")
     defaults = read_json(example_config_path())
     config = deep_merge(defaults, read_json(path))
+    config.get("collection", {}).pop("price_replacement", None)
     validate_config(config)
     return config
 
@@ -292,6 +305,16 @@ def availability_fingerprint(context: dict) -> str:
         "fresh_minutes": availability["fresh_minutes"],
     }
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def pricing_config_fingerprint(config: dict) -> str:
+    collection = config["collection"]
+    payload = {
+        "price_threshold": str(collection["price_threshold"]),
+        "minimum_profit_rate": str(collection["minimum_profit_rate"]),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
@@ -705,6 +728,337 @@ def parse_timestamp(value: str, field_name: str) -> dt.datetime:
     return timestamp.astimezone(dt.timezone.utc)
 
 
+def parse_money(value: object, field_name: str) -> Decimal:
+    if not isinstance(value, str) or not MONEY_RE.fullmatch(value):
+        raise ValueError(f"{field_name} must be a positive decimal string with at most two places")
+    try:
+        amount = Decimal(value)
+    except InvalidOperation as exc:
+        raise ValueError(f"{field_name} is not a valid decimal amount") from exc
+    if not amount.is_finite() or amount <= 0:
+        raise ValueError(f"{field_name} must be greater than zero")
+    return amount.quantize(MONEY_QUANTUM)
+
+
+def decimal_from_config(value: object, field_name: str) -> Decimal:
+    try:
+        decimal_value = Decimal(str(value))
+    except InvalidOperation as exc:
+        raise ValueError(f"{field_name} is not a valid decimal") from exc
+    if not decimal_value.is_finite():
+        raise ValueError(f"{field_name} must be finite")
+    return decimal_value
+
+
+def minimum_price_for_cost(cost: Decimal, profit_rate: Decimal) -> Decimal:
+    return (cost * (Decimal("1") + profit_rate)).quantize(
+        MONEY_QUANTUM, rounding=ROUND_CEILING
+    )
+
+
+def money_text(value: Decimal) -> str:
+    return format(value.quantize(MONEY_QUANTUM), ".2f")
+
+
+def raw_text_uniquely_represents_amount(raw_text: str, amount: Decimal) -> bool:
+    if "%" in raw_text or re.search(r"(?<!\d)-\s*\d", raw_text):
+        return False
+    tokens = NUMBER_TOKEN_RE.findall(raw_text.replace(",", ""))
+    if len(tokens) != 1:
+        return False
+    try:
+        return Decimal(tokens[0]) == amount
+    except InvalidOperation:
+        return False
+
+
+def pricing_evidence_payload(
+    entry: dict,
+    context: dict,
+    currency: str,
+    sales_unit: str,
+    expected_sku_count: int,
+    skus: list[dict],
+) -> dict:
+    needs_cost = any("supplier_cost" in sku for sku in skus)
+    availability = None
+    if context["config"]["availability"]["required"] or needs_cost:
+        availability = require_availability(entry, context, require_fresh=True)
+    recorded_urls = entry.get("supplier_links")
+    links_recorded_at = entry.get("links_recorded_at")
+    if not isinstance(recorded_urls, list) or not recorded_urls:
+        raise ValueError("Pricing requires recorded supplier links")
+    parse_timestamp(links_recorded_at, "supplier links")
+    if availability is not None and (
+        availability.get("recorded_links") != recorded_urls
+        or availability.get("recorded_links_at") != links_recorded_at
+    ):
+        raise ValueError("Availability evidence is not bound to the current supplier links")
+    collection = context["config"]["collection"]
+    threshold = decimal_from_config(collection["price_threshold"], "collection.price_threshold")
+    profit_rate = decimal_from_config(
+        collection["minimum_profit_rate"], "collection.minimum_profit_rate"
+    )
+    return {
+        "schema_version": PRICING_EVIDENCE_VERSION,
+        "confirmed_at": now_iso(),
+        "currency": currency,
+        "sales_unit": sales_unit,
+        "expected_sku_count": expected_sku_count,
+        "product_canonical_code": entry["canonical_product_code"],
+        "availability_required": availability is not None,
+        "availability_checked_at": availability["checked_at"] if availability else None,
+        "availability_config_fingerprint": availability["config_fingerprint"] if availability else None,
+        "recorded_links": list(recorded_urls),
+        "links_recorded_at": links_recorded_at,
+        "pricing_config_fingerprint": pricing_config_fingerprint(context["config"]),
+        "price_threshold": money_text(threshold),
+        "minimum_profit_rate": format(profit_rate, "f"),
+        "skus": skus,
+    }
+
+
+def normalize_pricing_skus(
+    data: dict,
+    entry: dict,
+    context: dict,
+    *,
+    currency: str,
+    sales_unit: str,
+) -> list[dict]:
+    raw_skus = data.get("skus")
+    if not isinstance(raw_skus, list) or not raw_skus:
+        raise ValueError("sku-file must contain a non-empty skus list")
+    collection = context["config"]["collection"]
+    threshold = decimal_from_config(collection["price_threshold"], "collection.price_threshold")
+    profit_rate = decimal_from_config(
+        collection["minimum_profit_rate"], "collection.minimum_profit_rate"
+    )
+    seen = set()
+    normalized = []
+    for index, raw_sku in enumerate(raw_skus, start=1):
+        prefix = f"skus[{index}]"
+        if not isinstance(raw_sku, dict):
+            raise ValueError(f"{prefix} must be an object")
+        sku_key = raw_sku.get("sku_key")
+        if not isinstance(sku_key, str) or not sku_key.strip():
+            raise ValueError(f"{prefix}.sku_key must be a non-empty string")
+        cleaned_key = unicodedata.normalize("NFKC", sku_key).strip()
+        canonical_key = normalize_identifier(cleaned_key)
+        if canonical_key in seen:
+            raise ValueError("SKU keys must be unique after normalization")
+        seen.add(canonical_key)
+        original = parse_money(raw_sku.get("original_price"), f"{prefix}.original_price")
+        final = parse_money(raw_sku.get("final_price"), f"{prefix}.final_price")
+        item = {
+            "sku_key": cleaned_key,
+            "canonical_sku_key": canonical_key,
+            "original_price": money_text(original),
+            "final_price": money_text(final),
+        }
+        if original >= threshold:
+            if final != original:
+                raise ValueError(f"{prefix}.final_price must preserve an original price at or above threshold")
+        else:
+            cost = parse_money(raw_sku.get("supplier_cost"), f"{prefix}.supplier_cost")
+            cost_sheet = raw_sku.get("cost_sheet")
+            cost_cell = raw_sku.get("cost_cell")
+            cost_raw_text = raw_sku.get("cost_raw_text")
+            supplier_currency = raw_sku.get("supplier_currency")
+            supplier_unit = raw_sku.get("supplier_unit")
+            supplier_sku_text = raw_sku.get("supplier_sku_text")
+            product_query = raw_sku.get("product_query")
+            product_cell = raw_sku.get("product_cell")
+            product_raw_text = raw_sku.get("product_raw_text")
+            supplier_sku_cell = raw_sku.get("supplier_sku_cell")
+            if not all(
+                isinstance(value, str) and value.strip()
+                for value in (
+                    cost_sheet,
+                    cost_cell,
+                    cost_raw_text,
+                    supplier_currency,
+                    supplier_unit,
+                    supplier_sku_text,
+                    product_query,
+                    product_cell,
+                    product_raw_text,
+                    supplier_sku_cell,
+                )
+            ):
+                raise ValueError(f"{prefix} requires complete supplier cost evidence")
+            cleaned_supplier_currency = supplier_currency.strip().upper()
+            if cleaned_supplier_currency not in SUPPORTED_CURRENCIES:
+                raise ValueError(f"{prefix}.supplier_currency is not a supported ISO 4217 code")
+            if cleaned_supplier_currency != currency:
+                raise ValueError(f"{prefix}.supplier_currency must match the Miaoshou price currency")
+            cleaned_supplier_unit = unicodedata.normalize("NFKC", supplier_unit).strip()
+            if normalize_identifier(cleaned_supplier_unit) != normalize_identifier(sales_unit):
+                raise ValueError(f"{prefix}.supplier_unit must match the Miaoshou sales unit")
+            cleaned_supplier_sku_text = unicodedata.normalize("NFKC", supplier_sku_text).strip()
+            if normalize_identifier(cleaned_supplier_sku_text) != canonical_key:
+                raise ValueError(f"{prefix}.supplier_sku_text must exactly match sku_key")
+            cleaned_cell = cost_cell.strip().upper()
+            cleaned_product_cell = product_cell.strip().upper()
+            cleaned_supplier_sku_cell = supplier_sku_cell.strip().upper()
+            for field_name, cell in (
+                ("cost_cell", cleaned_cell),
+                ("product_cell", cleaned_product_cell),
+                ("supplier_sku_cell", cleaned_supplier_sku_cell),
+            ):
+                if not CELL_REFERENCE_RE.fullmatch(cell):
+                    raise ValueError(f"{prefix}.{field_name} must be an A1-style cell reference")
+            cell_rows = {
+                re.search(r"[1-9]\d*$", cell).group()
+                for cell in (cleaned_cell, cleaned_product_cell, cleaned_supplier_sku_cell)
+            }
+            if len(cell_rows) != 1:
+                raise ValueError(f"{prefix} product, SKU, and cost cells must be on the same row")
+            cleaned_sheet = cost_sheet.strip()
+            if cleaned_sheet in context["config"]["availability"]["sold_out_sheets"]:
+                raise ValueError(f"{prefix}.cost_sheet cannot be a sold-out worksheet")
+            cleaned_raw_text = cost_raw_text.strip()
+            if not raw_text_uniquely_represents_amount(cleaned_raw_text, cost):
+                raise ValueError(
+                    f"{prefix}.cost_raw_text must contain one unambiguous amount equal to supplier_cost"
+                )
+            cleaned_product_query = unicodedata.normalize("NFKC", product_query).strip()
+            if normalize_identifier(cleaned_product_query) not in allowed_queries(entry):
+                raise ValueError(f"{prefix}.product_query must be the recorded product code or alias")
+            cleaned_product_raw_text = unicodedata.normalize("NFKC", product_raw_text).strip()
+            if not text_contains_exact_query(cleaned_product_raw_text, cleaned_product_query):
+                raise ValueError(f"{prefix}.product_raw_text must contain the complete product query")
+            currency_codes = {
+                match.upper()
+                for match in re.findall(
+                    r"(?<![A-Za-z])[A-Za-z]{3}(?![A-Za-z])", cleaned_raw_text
+                )
+                if match.upper() in SUPPORTED_CURRENCIES
+            }
+            if currency_codes and currency_codes != {cleaned_supplier_currency}:
+                raise ValueError(f"{prefix}.cost_raw_text currency conflicts with supplier_currency")
+            floor = minimum_price_for_cost(cost, profit_rate)
+            required = max(original, floor)
+            if final != required:
+                raise ValueError(
+                    f"{prefix}.final_price must be {money_text(required)} "
+                    f"(max of original price and supplier cost plus configured markup)"
+                )
+            item.update(
+                {
+                    "supplier_cost": money_text(cost),
+                    "minimum_price": money_text(floor),
+                    "cost_sheet": cleaned_sheet,
+                    "cost_cell": cleaned_cell,
+                    "cost_raw_text": cleaned_raw_text,
+                    "supplier_currency": cleaned_supplier_currency,
+                    "supplier_unit": cleaned_supplier_unit,
+                    "supplier_sku_text": cleaned_supplier_sku_text,
+                    "product_query": cleaned_product_query,
+                    "product_cell": cleaned_product_cell,
+                    "product_raw_text": cleaned_product_raw_text,
+                    "supplier_sku_cell": cleaned_supplier_sku_cell,
+                }
+            )
+        allowed_fields = {"sku_key", "canonical_sku_key", "original_price", "final_price"}
+        if original < threshold:
+            allowed_fields.update(
+                {
+                    "supplier_cost",
+                    "cost_sheet",
+                    "cost_cell",
+                    "cost_raw_text",
+                    "supplier_currency",
+                    "supplier_unit",
+                    "supplier_sku_text",
+                    "product_query",
+                    "product_cell",
+                    "product_raw_text",
+                    "supplier_sku_cell",
+                    "minimum_price",
+                }
+            )
+        unknown_fields = set(raw_sku) - allowed_fields
+        if unknown_fields:
+            raise ValueError(f"{prefix} contains unsupported fields: {sorted(unknown_fields)}")
+        if "canonical_sku_key" in raw_sku and raw_sku["canonical_sku_key"] != canonical_key:
+            raise ValueError(f"{prefix}.canonical_sku_key does not match sku_key")
+        if original < threshold and "minimum_price" in raw_sku:
+            minimum_price = parse_money(raw_sku["minimum_price"], f"{prefix}.minimum_price")
+            if minimum_price != floor:
+                raise ValueError(f"{prefix}.minimum_price does not match supplier cost")
+        normalized.append(item)
+    return normalized
+
+
+def require_pricing(entry: dict, context: dict) -> dict:
+    evidence = entry.get("pricing_confirmation")
+    if not isinstance(evidence, dict):
+        raise ValueError("Current product has no confirmed SKU pricing")
+    expected = {
+        "schema_version": PRICING_EVIDENCE_VERSION,
+        "product_canonical_code": entry["canonical_product_code"],
+        "recorded_links": entry.get("supplier_links"),
+        "links_recorded_at": entry.get("links_recorded_at"),
+        "pricing_config_fingerprint": pricing_config_fingerprint(context["config"]),
+        "price_threshold": money_text(
+            decimal_from_config(
+                context["config"]["collection"]["price_threshold"],
+                "collection.price_threshold",
+            )
+        ),
+        "minimum_profit_rate": format(
+            decimal_from_config(
+                context["config"]["collection"]["minimum_profit_rate"],
+                "collection.minimum_profit_rate",
+            ),
+            "f",
+        ),
+    }
+    for field, value in expected.items():
+        if evidence.get(field) != value:
+            raise ValueError(f"Invalid pricing evidence field: {field}")
+    currency = evidence.get("currency")
+    if not isinstance(currency, str) or currency not in SUPPORTED_CURRENCIES:
+        raise ValueError("Pricing evidence currency must be a supported ISO 4217 code")
+    sales_unit = evidence.get("sales_unit")
+    if not isinstance(sales_unit, str) or not sales_unit.strip():
+        raise ValueError("Pricing evidence sales unit must be a non-empty string")
+    expected_sku_count = evidence.get("expected_sku_count")
+    if type(expected_sku_count) is not int or expected_sku_count < 1:
+        raise ValueError("Pricing evidence expected SKU count must be positive")
+    parse_timestamp(evidence.get("confirmed_at"), "pricing confirmation")
+    try:
+        normalized_skus = normalize_pricing_skus(
+            {"skus": evidence.get("skus")},
+            entry,
+            context,
+            currency=currency,
+            sales_unit=sales_unit,
+        )
+    except ValueError as exc:
+        raise ValueError(f"Invalid pricing evidence: {exc}") from exc
+    if evidence.get("skus") != normalized_skus:
+        raise ValueError("Pricing evidence SKU data is not canonical or has been modified")
+    if len(normalized_skus) != expected_sku_count:
+        raise ValueError("Pricing evidence does not cover the declared retained SKU count")
+    needs_cost = any("supplier_cost" in sku for sku in normalized_skus)
+    should_have_availability = context["config"]["availability"]["required"] or needs_cost
+    if evidence.get("availability_required") is not should_have_availability:
+        raise ValueError("Pricing evidence availability binding is invalid")
+    if should_have_availability:
+        availability = require_availability(entry, context, require_fresh=True)
+        if evidence.get("availability_checked_at") != availability["checked_at"]:
+            raise ValueError("Pricing evidence is not bound to the current availability check")
+        if evidence.get("availability_config_fingerprint") != availability["config_fingerprint"]:
+            raise ValueError("Pricing evidence is not bound to the current supplier document")
+    elif evidence.get("availability_checked_at") is not None or evidence.get(
+        "availability_config_fingerprint"
+    ) is not None:
+        raise ValueError("Pricing evidence has an unexpected availability binding")
+    return evidence
+
+
 def require_availability(entry: dict, context: dict, *, require_fresh: bool) -> dict:
     config = context["config"]
     availability = config["availability"]
@@ -748,10 +1102,10 @@ def require_availability(entry: dict, context: dict, *, require_fresh: bool) -> 
     return evidence
 
 
-def availability_setup_errors(context: dict) -> list[str]:
+def availability_setup_errors(context: dict, *, force: bool = False) -> list[str]:
     config = context["config"]
     availability = config["availability"]
-    if not availability["required"]:
+    if not availability["required"] and not force:
         return []
     errors = []
     if not availability["document_url"]:
@@ -767,8 +1121,8 @@ def availability_setup_errors(context: dict) -> list[str]:
     return errors
 
 
-def require_availability_setup(context: dict) -> None:
-    errors = availability_setup_errors(context)
+def require_availability_setup(context: dict, *, force: bool = False) -> None:
+    errors = availability_setup_errors(context, force=force)
     if errors:
         raise ValueError("; ".join(errors))
 
@@ -821,6 +1175,7 @@ def command_confirm_availability(args: argparse.Namespace, context: dict) -> int
             evidence["recorded_links"] = list(entry["supplier_links"])
             evidence["recorded_links_at"] = entry.get("links_recorded_at")
         entry["availability"] = evidence
+        entry.pop("pricing_confirmation", None)
         atomic_write_json(context["history"], history)
     print(json.dumps({"history_file": str(context["history"]), "entry": entry}, ensure_ascii=False, indent=2))
     return 0
@@ -856,6 +1211,7 @@ def command_record_links(args: argparse.Namespace, context: dict) -> int:
         entry["supplier_links"] = urls
         entry["links_recorded_at"] = recorded_at
         entry["status"] = "awaiting_miaoshou_collection"
+        entry.pop("pricing_confirmation", None)
         if evidence is not None:
             evidence["recorded_links"] = list(urls)
             evidence["recorded_links_at"] = recorded_at
@@ -874,6 +1230,58 @@ def command_record_links(args: argparse.Namespace, context: dict) -> int:
                 atomic_write_text(link_file, previous_content)
             raise
     print(json.dumps({"history_file": str(context["history"]), "entry": entry}, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_record_pricing(args: argparse.Namespace, context: dict) -> int:
+    output_dir = Path(args.output_dir).expanduser().resolve()
+    if not output_dir.is_dir() or not output_dir.is_relative_to(context["output_root"]):
+        raise ValueError("Output directory must exist inside output_root")
+    currency = args.currency.strip().upper()
+    if currency not in SUPPORTED_CURRENCIES:
+        raise ValueError("currency must be a supported ISO 4217 code")
+    if args.expected_sku_count < 1:
+        raise ValueError("expected-sku-count must be positive")
+    sales_unit = unicodedata.normalize("NFKC", args.sales_unit).strip()
+    if not sales_unit:
+        raise ValueError("sales-unit must be a non-empty value from Miaoshou and the supplier document")
+    sku_file = Path(args.sku_file).expanduser().resolve()
+    data = read_json(sku_file)
+
+    with locked(context):
+        history = load_history(context["history"])
+        entry = find_entry_by_output(history, output_dir, context)
+        if entry.get("status") != "awaiting_miaoshou_collection":
+            raise ValueError(f"Product status cannot record pricing: {entry.get('status')}")
+        normalized_skus = normalize_pricing_skus(
+            data,
+            entry,
+            context,
+            currency=currency,
+            sales_unit=sales_unit,
+        )
+        if len(normalized_skus) != args.expected_sku_count:
+            raise ValueError("sku-file row count must equal --expected-sku-count")
+        needs_cost = any("supplier_cost" in sku for sku in normalized_skus)
+        if needs_cost or context["config"]["availability"]["required"]:
+            require_availability_setup(context, force=needs_cost)
+        evidence = pricing_evidence_payload(
+            entry,
+            context,
+            currency,
+            sales_unit,
+            args.expected_sku_count,
+            normalized_skus,
+        )
+        entry["pricing_confirmation"] = evidence
+        atomic_write_json(context["history"], history)
+    print(
+        json.dumps(
+            {"history_file": str(context["history"]), "pricing": evidence, "entry": entry},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -897,12 +1305,6 @@ def command_mark_collected(args: argparse.Namespace, context: dict) -> int:
             raise ValueError("Recorded supplier link count is outside configured limits")
         if len(resolved_urls) > len(recorded_urls):
             raise ValueError("Resolved URL count cannot exceed supplier link count")
-        deliverable_result = inspect_deliverables(output_dir, context, history)
-        if not deliverable_result["valid"]:
-            raise ValueError(
-                "Prepared deliverables are incomplete or invalid: "
-                f"missing={deliverable_result['missing']}, invalid={deliverable_result['invalid']}"
-            )
         if config["availability"]["required"]:
             evidence = require_availability(entry, context, require_fresh=True)
             if evidence.get("recorded_links") != recorded_urls or evidence.get(
@@ -910,6 +1312,13 @@ def command_mark_collected(args: argparse.Namespace, context: dict) -> int:
             ) != entry.get("links_recorded_at"):
                 raise ValueError("Availability evidence is not bound to the current supplier links")
         parse_timestamp(entry.get("links_recorded_at"), "supplier links")
+        require_pricing(entry, context)
+        deliverable_result = inspect_deliverables(output_dir, context, history)
+        if not deliverable_result["valid"]:
+            raise ValueError(
+                "Prepared deliverables are incomplete or invalid: "
+                f"missing={deliverable_result['missing']}, invalid={deliverable_result['invalid']}"
+            )
         entry["resolved_urls"] = resolved_urls
         entry["collected_at"] = now_iso()
         entry["status"] = "miaoshou_collected"
@@ -1085,6 +1494,14 @@ def build_parser() -> argparse.ArgumentParser:
     record.add_argument("output_dir")
     record.add_argument("urls", nargs="+")
     record.set_defaults(func=command_record_links)
+
+    pricing = subparsers.add_parser("record-pricing", help="Validate and record evidence-backed SKU prices")
+    pricing.add_argument("output_dir")
+    pricing.add_argument("--currency", required=True)
+    pricing.add_argument("--sales-unit", required=True)
+    pricing.add_argument("--expected-sku-count", required=True, type=int)
+    pricing.add_argument("--sku-file", required=True)
+    pricing.set_defaults(func=command_record_pricing)
 
     collected = subparsers.add_parser("mark-collected", help="Mark a fully edited and cleaned collection complete")
     collected.add_argument("output_dir")

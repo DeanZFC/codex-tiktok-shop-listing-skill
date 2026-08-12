@@ -1,0 +1,4 @@
+interface:
+  display_name: "TikTok Shop 通用上架"
+  short_description: "跨品类选品、供货核验、妙手采集、商品编辑与历史去重"
+  default_prompt: "使用 $manage-tiktok-shop-listings 准备并上架下一款商品，按配置完成供货核验、采集与妙手编辑。"

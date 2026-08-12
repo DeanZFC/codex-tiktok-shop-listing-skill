@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "catalog_roots": [
+    "选品"
+  ],
+  "output_root": "链接",
+  "state_root": ".tiktok-shop-listing",
+  "product_discovery": {
+    "image_extensions": [
+      ".avif",
+      ".bmp",
+      ".gif",
+      ".heic",
+      ".jpeg",
+      ".jpg",
+      ".png",
+      ".webp"
+    ],
+    "ignore_directories": [
+      ".git",
+      ".tiktok-shop-listing",
+      "已做"
+    ],
+    "min_product_code_chars": 4
+  },
+  "availability": {
+    "required": true,
+    "document_url": "",
+    "scope": "all_sheets",
+    "sold_out_sheets": [
+      "售罄下架款"
+    ],
+    "fresh_minutes": 60
+  },
+  "copy": {
+    "language": "en",
+    "title_max_chars": 150,
+    "preferred_fields": [
+      "Brand",
+      "Model",
+      "Material",
+      "Color",
+      "Pattern",
+      "Dimensions",
+      "Size",
+      "Quantity",
+      "Set Includes",
+      "Item ID",
+      "Origin"
+    ]
+  },
+  "collection": {
+    "min_links": 1,
+    "max_links": 3,
+    "browser": "edge",
+    "final_image_count": 3,
+    "price_threshold": 50.0,
+    "price_replacement": 50.01,
+    "sku_inventory": 19,
+    "delete_nonselected": true
+  },
+  "deliverables": {
+    "copy_file": "TK店铺标题和内容.txt",
+    "scan_image": "扫同款产品图.jpg",
+    "spec_chart": "规格配置图.png",
+    "spec_chart_required": false,
+    "supplier_links_file": "供应商短链接.txt"
+  }
+}

@@ -1,0 +1,71 @@
+# 本机配置
+
+## 首次设置
+
+运行 `init-config` 后编辑：
+
+```text
+<WORKSPACE>/.tiktok-shop-listing/config.json
+```
+
+路径相对工作区解析；`catalog_roots` 也允许本机绝对路径。`output_root` 与 `state_root` 必须位于工作区内。可设置环境变量 `TIKTOK_LISTING_WORKSPACE` 作为默认工作区，也可每次传入 `--root`。
+
+至少完成以下设置：
+
+1. `catalog_roots`：一个或多个商品资料目录。
+2. `output_root`：按日期和 `001-货号` 保存结果的目录。
+3. `availability.document_url`：实时供货文档 URL；供货核验必需时不能为空。
+4. `availability.sold_out_sheets`：所有售罄、暂停供货或下架工作表名称。
+5. `deliverables`：交付文件名及规格图是否必需。
+
+## 配置字段
+
+| 字段 | 含义 |
+|---|---|
+| `catalog_roots` | 商品资料根目录列表 |
+| `output_root` | 上架资料输出目录 |
+| `state_root` | 本机配置、历史和锁文件目录 |
+| `product_discovery.image_extensions` | 识别商品候选的图片格式 |
+| `product_discovery.ignore_directories` | 扫描商品库时跳过的目录名 |
+| `product_discovery.min_product_code_chars` | 供应商货号和别名最短长度 |
+| `availability.required` | 是否强制实时供货核验；默认 `true` |
+| `availability.document_url` | 供货表或库存文档地址 |
+| `availability.scope` | 固定为 `all_sheets` |
+| `availability.sold_out_sheets` | 具有否决优先级的工作表列表 |
+| `availability.fresh_minutes` | 供货证据有效时间 |
+| `copy.language` | 店铺标题与内容语言 |
+| `copy.title_max_chars` | 标题最大字符数 |
+| `copy.preferred_fields` | 优先整理的事实字段 |
+| `collection.min_links/max_links` | 接受的销量链接数量范围 |
+| `collection.final_image_count` | 最终商品图片准确数量 |
+| `collection.price_threshold` | 低于此值才改价，默认 `50.0` |
+| `collection.price_replacement` | 低价 SKU 的替换价格，默认 `50.01` |
+| `collection.sku_inventory` | 所有 SKU 的目标库存，默认 `19` |
+| `collection.delete_nonselected` | 完成后是否删除本次未采用记录 |
+| `deliverables.spec_chart_required` | 缺少规格图时 `verify` 是否失败 |
+
+`availability.required=false` 只能在用户明确表示不需要供货文档时设置。它会关闭采集前供货门禁；不要为了绕过文档打不开或查无结果而临时关闭。
+
+修改文档地址、售罄工作表或有效时间后，旧供货证据会自动失效，必须重新核验。
+
+## Python 与依赖
+
+选择、预留、供货核验、链接记录和打开浏览器只使用 Python 标准库。`verify`、最终完成门禁和 `render_spec_chart.py` 需要 Pillow 对 JPEG/PNG 做真实解码校验：
+
+```bash
+python -m pip install Pillow
+```
+
+安装依赖前遵守当前环境的审批规则。没有 Pillow 时仍可使用前期流程，但不得跳过图片验证后标记完成。
+
+## 换电脑
+
+安装 Skill 后在新电脑重新运行 `init-config` 并填写该电脑路径。GitHub 仓库不会携带业务状态。
+
+如需延续去重记录，单独复制：
+
+```text
+<OLD_WORKSPACE>/.tiktok-shop-listing/history.json
+```
+
+复制到新工作区相同相对位置。历史中的商品来源使用“商品库序号 + 相对路径”，因此新电脑的 `catalog_roots` 顺序必须与旧电脑一致。运行 `audit` 检查缺失来源，不要用 `reset` 或重新扫描输出目录替代历史迁移。

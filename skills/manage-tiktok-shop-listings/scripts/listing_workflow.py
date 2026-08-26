@@ -195,6 +195,20 @@ def validate_config(config: dict) -> None:
     if not isinstance(collection.get("delete_nonselected"), bool):
         raise ValueError("collection.delete_nonselected must be true or false")
 
+    publication = config.get("publication")
+    if not isinstance(publication, dict):
+        raise ValueError("publication must be an object")
+    for field in ("auto_claim_tiktok", "auto_publish_tiktok"):
+        if not isinstance(publication.get(field), bool):
+            raise ValueError(f"publication.{field} must be true or false")
+    if publication.get("store_selection") != "all":
+        raise ValueError("publication.store_selection must be all")
+    store_count = publication.get("expected_store_count")
+    if type(store_count) is not int or store_count < 1:
+        raise ValueError("publication.expected_store_count must be a positive integer")
+    if publication.get("publish_mode") != "immediate":
+        raise ValueError("publication.publish_mode must be immediate")
+
     copy = config.get("copy")
     if not isinstance(copy, dict):
         raise ValueError("copy must be an object")

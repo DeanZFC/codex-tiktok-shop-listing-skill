@@ -60,6 +60,13 @@
     "sku_inventory": 19,
     "delete_nonselected": true
   },
+  "publication": {
+    "auto_claim_tiktok": true,
+    "auto_publish_tiktok": true,
+    "store_selection": "all",
+    "expected_store_count": 2,
+    "publish_mode": "immediate"
+  },
   "deliverables": {
     "copy_file": "TK店铺标题和内容.txt",
     "scan_image": "扫同款产品图.jpg",

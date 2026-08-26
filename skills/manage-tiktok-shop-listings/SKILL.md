@@ -1,6 +1,6 @@
 ---
 name: manage-tiktok-shop-listings
-description: Manage category-agnostic TikTok Shop product selection and listing workflows from supplier folders, including configurable catalogs, permanent cross-folder de-duplication, English listing copy, a supplier-original scan image, an optional PNG specification chart, mandatory configurable all-worksheet availability and supplier-cost checks, sales-ranked marketplace links, Microsoft Edge and manual Miaoshou-plugin collection, evidence-backed SKU pricing and inventory rules, image and variant cleanup, and final record deletion. Use when the user asks for the next product, prepares or edits a TikTok Shop listing, supplies sales-ranked product links, confirms Miaoshou collection, changes product categories, moves the workflow to another computer, or needs deleted low-sales products to remain permanently excluded.
+description: Manage category-agnostic TikTok Shop product selection and listing workflows from supplier folders, including configurable catalogs, permanent cross-folder de-duplication, English listing copy, a supplier-original scan image, an optional PNG specification chart, mandatory configurable all-worksheet availability and supplier-cost checks, sales-ranked marketplace links, Microsoft Edge and manual Miaoshou-plugin collection, evidence-backed SKU pricing and inventory rules, image and variant cleanup, final record deletion, and optional TikTok claim and two-store publishing. Use when the user asks for the next product, prepares or edits a TikTok Shop listing, supplies sales-ranked product links, confirms Miaoshou collection, changes product categories, moves the workflow to another computer, or needs deleted low-sales products to remain permanently excluded.
 ---
 
 # TikTok Shop 通用上架
@@ -10,12 +10,12 @@ description: Manage category-agnostic TikTok Shop product selection and listing 
 每次只处理一款商品，按以下状态推进：
 
 ```text
-候选 -> 已预留/待扫同款 -> 已核验供货 -> 待妙手采集 -> 已编辑并清理完成
+候选 -> 已预留/待扫同款 -> 已核验供货 -> 待妙手采集 -> 已编辑并清理完成 -> TikTok 已认领/待发布 -> 已发布
 ```
 
 使用 `scripts/listing_workflow.py` 维护本机配置和永久历史。Skill 目录只保存程序；商品库、配置、历史、浏览器登录状态和妙手登录状态始终留在用户工作区，不得上传到 Skill 仓库。
 
-首次使用、换品类或换电脑时，完整读取 [configuration.md](references/configuration.md)。进入供货或成本核验时读取 [availability.md](references/availability.md)。用户确认插件采集完成后读取 [miaoshou.md](references/miaoshou.md)。
+首次使用、换品类或换电脑时，完整读取 [configuration.md](references/configuration.md)。进入供货或成本核验时读取 [availability.md](references/availability.md)。用户确认插件采集完成后读取 [miaoshou.md](references/miaoshou.md)。编辑保存完成并启用自动认领/发布时，再读取 [tiktok_publish.md](references/tiktok_publish.md)。
 
 ## 初始化
 
@@ -161,6 +161,8 @@ python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" mark-colle
 
 按实际链接数量重复 `--resolved-url`。`mark-collected` 强制要求有效且行数符合人工 SKU 数量声明的价格证据；妙手实际保留 SKU 总数仍需在页面人工清点。任一记录仍在处理中、最终编辑未保存、图片数量不符、变体不合供应商资料、其余记录未删完、供货或价格证据过期时，不得完成标记。
 
+`mark-collected` 成功后，如果配置中的 `publication.auto_claim_tiktok` 和 `publication.auto_publish_tiktok` 已启用，继续读取并执行 [tiktok_publish.md](references/tiktok_publish.md)：自动认领到 TikTok，进入 TikTok 采集箱，只选择当前商品，选择当前账号全部且恰好两家店铺，然后打开发布配置。最终“确认发布”前必须再次核对商品、两家店铺和立即发布设置，并按浏览器安全要求取得动作时确认；未看到成功提示和“已发布”状态前不得报告完成。
+
 ## 隔离与安全
 
 测试状态变更命令时始终使用临时工作区。真实工作区只执行用户当前商品所需的 `reserve`、`confirm-availability`、`record-links`、`record-pricing` 和 `mark-collected`。
@@ -171,5 +173,7 @@ python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" mark-colle
 - 商品图片、供应商数据包、输出目录
 - Cookie、Token、密码、浏览器配置或妙手账号数据
 - 含用户名的绝对路径
+
+认领和发布只使用已登录的妙手/TikTok 页面，不把 Cookie、Token、店铺凭据或页面截图写入 Skill 仓库。
 
 GitHub Skill 只迁移流程。另一台电脑要继续永久去重，需另行安全迁移工作区的 `.tiktok-shop-listing/history.json`；不要把历史放进公开仓库。

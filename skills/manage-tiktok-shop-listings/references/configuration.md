@@ -46,6 +46,11 @@
 | `collection.minimum_profit_rate` | 低价 SKU 相对供应商成本的最低加价率，默认且不得低于 `0.05` |
 | `collection.sku_inventory` | 所有 SKU 的目标库存，默认 `19` |
 | `collection.delete_nonselected` | 完成后是否删除本次未采用记录 |
+| `publication.auto_claim_tiktok` | 保存并清理完成后是否自动认领到 TikTok 采集箱 |
+| `publication.auto_publish_tiktok` | 认领后是否自动打开 TikTok 发布流程；最终确认发布仍需动作时确认 |
+| `publication.store_selection` | 店铺选择策略；`all` 表示选择当前账号全部可见店铺 |
+| `publication.expected_store_count` | 自动流程允许的店铺数量；本工作区固定为 `2` |
+| `publication.publish_mode` | 发布方式；本工作区使用 `immediate`（立即发布） |
 | `deliverables.spec_chart_required` | 缺少规格图时 `verify` 是否失败 |
 
 `collection.minimum_profit_rate=0.05` 表示在供应商成本上至少加价 `5%`，不是销售毛利率或扣除平台费、税费、运费后的净利润率。低价 SKU 的最低允许价为 `C * (1 + minimum_profit_rate)` 向上取整到分，最终价取采集原价与最低允许价中的较高者；采集原价等于或高于阈值时必须保持原价。脚本不允许把阈值改离 `50.0`，也不允许把最低加价率调低到 `5%` 以下。
@@ -53,6 +58,10 @@
 `availability.required=false` 只能在用户明确表示不需要供货文档时设置。它会关闭采集前供货门禁；不要为了绕过文档打不开、未提供新文档或查无结果而临时关闭。该设置也不能豁免低价 SKU 的成本证据：没有当前品类文档或无法确认成本时仍须停止。
 
 修改文档地址、绑定商品库、售罄工作表或有效时间后，旧供货证据会自动失效，必须重新核验。修改已记录链接、`price_threshold`、`minimum_profit_rate` 或其他定价相关配置后，旧价格证据也会失效，必须重新取得成本并运行 `record-pricing`。`audit.valid` 只表示商品库、历史和配置结构可用于前期选品；`audit.collection_ready` 表示当前文档已配置并绑定，可进入供货核验和采集，不表示当前商品的成本已经取得或可读。
+
+### TikTok 发布偏好
+
+本工作区的自动发布配置要求当前账号可见店铺数量恰好为两家，并在认领和发布两个页面都勾选全部两家店铺。不要把商品列表的“全选”误当成店铺全选；商品列表只保留当前目标商品。店铺数量或名称发生变化时先暂停，重新确认后再修改配置。
 
 ## Python 与依赖
 

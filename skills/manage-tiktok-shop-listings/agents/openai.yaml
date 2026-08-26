@@ -1,4 +1,4 @@
 interface:
   display_name: "TikTok Shop 通用上架"
-  short_description: "跨品类选品、供货成本核验、SKU定价与妙手上架"
-  default_prompt: "使用 $manage-tiktok-shop-listings 准备并上架下一款商品；换品类后先索取并绑定新的供货文档，低价SKU按供货成本至少加价5%，再完成妙手编辑。"
+  short_description: "跨品类选品、供货核验、妙手编辑与TikTok双店铺发布"
+  default_prompt: "使用 $manage-tiktok-shop-listings 准备并发布下一款商品；换品类后绑定新的供货文档，完成妙手编辑后认领到TikTok并选择两家店铺发布。"

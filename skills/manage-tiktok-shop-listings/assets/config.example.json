@@ -63,8 +63,11 @@
   "publication": {
     "auto_claim_tiktok": true,
     "auto_publish_tiktok": true,
-    "store_selection": "all",
-    "expected_store_count": 2,
+    "store_selection": "named",
+    "store_names": [
+      "Renova"
+    ],
+    "expected_store_count": 1,
     "publish_mode": "immediate"
   },
   "deliverables": {

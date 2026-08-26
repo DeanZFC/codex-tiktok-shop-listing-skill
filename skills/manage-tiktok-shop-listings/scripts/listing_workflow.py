@@ -201,11 +201,29 @@ def validate_config(config: dict) -> None:
     for field in ("auto_claim_tiktok", "auto_publish_tiktok"):
         if not isinstance(publication.get(field), bool):
             raise ValueError(f"publication.{field} must be true or false")
-    if publication.get("store_selection") != "all":
-        raise ValueError("publication.store_selection must be all")
+    store_selection = publication.get("store_selection")
+    if store_selection not in {"all", "named"}:
+        raise ValueError("publication.store_selection must be all or named")
     store_count = publication.get("expected_store_count")
     if type(store_count) is not int or store_count < 1:
         raise ValueError("publication.expected_store_count must be a positive integer")
+    if store_selection == "named":
+        store_names = publication.get("store_names")
+        if (
+            not isinstance(store_names, list)
+            or not store_names
+            or not all(isinstance(name, str) and name.strip() for name in store_names)
+            or len({name.strip().casefold() for name in store_names}) != len(store_names)
+        ):
+            raise ValueError(
+                "publication.store_names must be a non-empty list of unique names when store_selection is named"
+            )
+        if len(store_names) != store_count:
+            raise ValueError(
+                "publication.expected_store_count must equal the number of publication.store_names"
+            )
+    elif "store_names" in publication:
+        raise ValueError("publication.store_names is only allowed when store_selection is named")
     if publication.get("publish_mode") != "immediate":
         raise ValueError("publication.publish_mode must be immediate")
 

@@ -207,6 +207,45 @@ class ListingWorkflowTests(unittest.TestCase):
         self.assertEqual(unicode_collision.returncode, 2)
         self.assertIn("file names must be unique", unicode_collision.stderr)
 
+    def test_named_publication_store_selection(self) -> None:
+        config = self.load_config()
+        config["publication"].update(
+            {
+                "store_selection": "named",
+                "store_names": ["Renova"],
+                "expected_store_count": 1,
+            }
+        )
+        self.save_config(config)
+        valid = self.run_cli("show-config")
+        self.assertEqual(valid.returncode, 0, valid.stderr)
+
+        config["publication"]["expected_store_count"] = 2
+        self.save_config(config)
+        mismatch = self.run_cli("show-config")
+        self.assertEqual(mismatch.returncode, 2)
+        self.assertIn("equal the number of publication.store_names", mismatch.stderr)
+
+        config["publication"]["expected_store_count"] = 1
+        config["publication"]["store_names"] = ["Renova", "renova"]
+        self.save_config(config)
+        duplicate = self.run_cli("show-config")
+        self.assertEqual(duplicate.returncode, 2)
+        self.assertIn("non-empty list of unique names", duplicate.stderr)
+
+        config["publication"] = {
+            "auto_claim_tiktok": True,
+            "auto_publish_tiktok": True,
+            "store_selection": "all",
+            "store_names": ["Renova"],
+            "expected_store_count": 2,
+            "publish_mode": "immediate",
+        }
+        self.save_config(config)
+        unexpected_names = self.run_cli("show-config")
+        self.assertEqual(unexpected_names.returncode, 2)
+        self.assertIn("only allowed when store_selection is named", unexpected_names.stderr)
+
     def test_audit_and_eligible_fail_closed_for_incomplete_setup(self) -> None:
         healthy = self.run_cli("audit")
         self.assertEqual(healthy.returncode, 0, healthy.stderr)

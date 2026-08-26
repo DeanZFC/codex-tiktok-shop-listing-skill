@@ -1,6 +1,6 @@
 ---
 name: manage-tiktok-shop-listings
-description: Manage category-agnostic TikTok Shop product selection and listing workflows from supplier folders, including configurable catalogs, permanent cross-folder de-duplication, English listing copy, a supplier-original scan image, an optional PNG specification chart, mandatory configurable all-worksheet availability and supplier-cost checks, sales-ranked marketplace links, Microsoft Edge and manual Miaoshou-plugin collection, evidence-backed SKU pricing and inventory rules, image and variant cleanup, final record deletion, and optional TikTok claim and two-store publishing. Use when the user asks for the next product, prepares or edits a TikTok Shop listing, supplies sales-ranked product links, confirms Miaoshou collection, changes product categories, moves the workflow to another computer, or needs deleted low-sales products to remain permanently excluded.
+description: Manage category-agnostic TikTok Shop product selection and listing workflows from supplier folders, including configurable catalogs, permanent cross-folder de-duplication, English listing copy, a supplier-original scan image, an optional PNG specification chart, mandatory configurable all-worksheet availability and supplier-cost checks, sales-ranked marketplace links, Microsoft Edge and manual Miaoshou-plugin collection, evidence-backed SKU pricing and inventory rules, image and variant cleanup, final record deletion, and configurable TikTok claim and store publishing. Use when the user asks for the next product, prepares or edits a TikTok Shop listing, supplies sales-ranked product links, confirms Miaoshou collection, changes product categories, moves the workflow to another computer, or needs deleted low-sales products to remain permanently excluded.
 ---
 
 # TikTok Shop 通用上架
@@ -161,7 +161,7 @@ python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" mark-colle
 
 按实际链接数量重复 `--resolved-url`。`mark-collected` 强制要求有效且行数符合人工 SKU 数量声明的价格证据；妙手实际保留 SKU 总数仍需在页面人工清点。任一记录仍在处理中、最终编辑未保存、图片数量不符、变体不合供应商资料、其余记录未删完、供货或价格证据过期时，不得完成标记。
 
-`mark-collected` 成功后，如果配置中的 `publication.auto_claim_tiktok` 和 `publication.auto_publish_tiktok` 已启用，继续读取并执行 [tiktok_publish.md](references/tiktok_publish.md)：自动认领到 TikTok，进入 TikTok 采集箱，只选择当前商品，选择当前账号全部且恰好两家店铺，然后打开发布配置。最终“确认发布”前必须再次核对商品、两家店铺和立即发布设置，并按浏览器安全要求取得动作时确认；未看到成功提示和“已发布”状态前不得报告完成。
+`mark-collected` 成功后，如果配置中的 `publication.auto_claim_tiktok` 和 `publication.auto_publish_tiktok` 已启用，继续读取并执行 [tiktok_publish.md](references/tiktok_publish.md)：自动认领到 TikTok，进入 TikTok 采集箱，只选择当前商品，按 `publication.store_selection` 选择店铺，然后打开发布配置。最终“确认发布”前必须再次核对商品、配置中的店铺和立即发布设置，并按浏览器安全要求取得动作时确认；未看到成功提示和每个目标店铺的成功记录前不得报告完成。
 
 ## 隔离与安全
 

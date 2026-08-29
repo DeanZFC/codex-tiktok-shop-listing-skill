@@ -47,7 +47,7 @@
 | `collection.sku_inventory` | 所有 SKU 的目标库存，默认 `19` |
 | `collection.delete_nonselected` | 完成后是否删除本次未采用记录 |
 | `publication.auto_claim_tiktok` | 保存并清理完成后是否自动认领到 TikTok 采集箱 |
-| `publication.auto_publish_tiktok` | 认领后是否自动打开 TikTok 发布流程；最终确认发布仍需动作时确认 |
+| `publication.auto_publish_tiktok` | 认领后是否自动完成 TikTok 发布流程；为 `true` 时，最终核对通过后直接点击“确认发布” |
 | `publication.store_selection` | 店铺选择策略；`all` 表示选择当前账号全部可见店铺，`named` 表示只选择 `store_names` 中列出的店铺 |
 | `publication.store_names` | `store_selection=named` 时的精确店铺名称列表；名称必须与页面显示完全一致 |
 | `publication.expected_store_count` | 自动流程允许的店铺数量；必须与实际选择数量一致 |
@@ -63,6 +63,8 @@
 ### TikTok 发布偏好
 
 自动发布必须严格遵守 `publication.store_selection`。`all` 模式要求读取当前账号可见店铺总数并全部勾选；`named` 模式只勾选 `publication.store_names` 中的精确名称，并核对数量等于 `publication.expected_store_count`。不要把商品列表的“全选”误当成店铺全选；商品列表只保留当前目标商品。店铺数量、名称或可见性发生变化时先暂停，重新确认后再修改配置。
+
+`publication.auto_publish_tiktok=true` 是对当前工作流中唯一确定商品的自动发布偏好。点击最终“确认发布”前仍必须重新核对标题、货源 ID、SKU、价格、库存、店铺名称、店铺数量和发布方式，并确认付费推广、自动提报等未配置附加项均未启用；全部通过后直接发布，不再询问。该配置不能用于发布列表中的其他商品，也不能绕过验证码、权限、侵权、覆盖已有商品或目标不唯一等异常。
 
 ## Python 与依赖
 

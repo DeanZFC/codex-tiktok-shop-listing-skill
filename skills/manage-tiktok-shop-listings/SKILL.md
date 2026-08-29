@@ -15,6 +15,20 @@ description: Manage category-agnostic TikTok Shop product selection and listing 
 
 使用 `scripts/listing_workflow.py` 维护本机配置和永久历史。Skill 目录只保存程序；商品库、配置、历史、浏览器登录状态和妙手登录状态始终留在用户工作区，不得上传到 Skill 仓库。
 
+## 浏览器分工
+
+- 只有打开 TikTok、Temu、Amazon 等外部商品页并让用户手动点击妙手插件采集时，使用 Microsoft Edge；短链接跳转后的商品页也保持在 Edge 中。
+- 供货文档核验、妙手公用采集箱、商品编辑与清理、TikTok 认领、店铺选择和发布，统一使用 Codex 内置浏览器，并沿用其中的登录会话。
+- 不要把 Edge 的插件弹窗操作替代为内置浏览器操作；也不要在 Edge 中执行供货核验、商品编辑或发布。若内置浏览器没有可用的已登录页面，先提示用户在内置浏览器登录或打开页面。
+
+## 确认与连续操作
+
+- 供货核验、页面导航、商品编辑、保存、刷新复核、认领准备和发布配置等常规步骤连续执行，不为每一步向用户重复询问“是否继续”。
+- 用户对一个明确批次作出动作时确认后，该确认覆盖该批次内为完成同一操作而出现的重复“确定”“继续”等确认弹窗；逐个处理这些弹窗，不再逐条询问用户。批次范围必须由目标商品及明确的记录 ID、店铺或操作定义，不得扩展到新商品或新记录。
+- 新的永久删除批次以及浏览器或系统明确要求再次授权的动作仍按动作时确认要求处理。每个此类动作只询问一次；取得确认后立即完成该动作及其重复弹窗，不在中间步骤再次询问。
+- `publication.auto_publish_tiktok=true` 表示用户已要求把当前工作流中经过完整核验的单个商品直接发布：最终再次核对商品、店铺名称与数量、发布方式及附加服务后，自动点击“确认发布”并处理后续弹窗，不再询问用户。
+- 自动发布只适用于当前工作流唯一确定的单个商品和配置中的目标店铺，不得借此批量发布其他商品。商品或店铺不唯一、配置变化、付费、验证码、权限变更、覆盖已有商品或无法唯一识别目标时停止并说明具体阻碍。
+
 首次使用、换品类或换电脑时，完整读取 [configuration.md](references/configuration.md)。进入供货或成本核验时读取 [availability.md](references/availability.md)。用户确认插件采集完成后读取 [miaoshou.md](references/miaoshou.md)。编辑保存完成并启用自动认领/发布时，再读取 [tiktok_publish.md](references/tiktok_publish.md)。
 
 ## 初始化
@@ -161,7 +175,7 @@ python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" mark-colle
 
 按实际链接数量重复 `--resolved-url`。`mark-collected` 强制要求有效且行数符合人工 SKU 数量声明的价格证据；妙手实际保留 SKU 总数仍需在页面人工清点。任一记录仍在处理中、最终编辑未保存、图片数量不符、变体不合供应商资料、其余记录未删完、供货或价格证据过期时，不得完成标记。
 
-`mark-collected` 成功后，如果配置中的 `publication.auto_claim_tiktok` 和 `publication.auto_publish_tiktok` 已启用，继续读取并执行 [tiktok_publish.md](references/tiktok_publish.md)：自动认领到 TikTok，进入 TikTok 采集箱，只选择当前商品，按 `publication.store_selection` 选择店铺，然后打开发布配置。最终“确认发布”前必须再次核对商品、配置中的店铺和立即发布设置，并按浏览器安全要求取得动作时确认；未看到成功提示和每个目标店铺的成功记录前不得报告完成。
+`mark-collected` 成功后，如果配置中的 `publication.auto_claim_tiktok` 和 `publication.auto_publish_tiktok` 已启用，继续读取并执行 [tiktok_publish.md](references/tiktok_publish.md)：自动认领到 TikTok，进入 TikTok 采集箱，只选择当前商品，按 `publication.store_selection` 选择店铺，然后打开发布配置。最终“确认发布”前必须再次核对商品、配置中的店铺、店铺数量、立即发布设置和付费附加项；核对全部通过后直接确认发布，不再询问。未看到成功提示和每个目标店铺的成功记录前不得报告完成。
 
 ## 隔离与安全
 

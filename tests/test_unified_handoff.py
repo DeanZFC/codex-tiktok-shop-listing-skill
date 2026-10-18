@@ -1,13 +1,12 @@
 from contextlib import redirect_stdout
 from io import StringIO
 import argparse
+import base64
 import json
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-
-from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "manage-tiktok-shop-listings" / "scripts"
@@ -15,6 +14,11 @@ sys.path.insert(0, str(SCRIPTS))
 
 import listing_workflow
 import run
+
+
+MINIMAL_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
 
 class UnifiedHandoffTests(unittest.TestCase):
@@ -25,7 +29,7 @@ class UnifiedHandoffTests(unittest.TestCase):
         self.workspace = self.root / "workspace"
         self.product = self.root / "supplier" / "真实产品目录"
         self.product.mkdir(parents=True)
-        Image.new("RGB", (90, 160), "blue").save(self.product / "front.png")
+        (self.product / "front.png").write_bytes(MINIMAL_PNG)
         self.context = run.bootstrap_product(self.workspace, self.product)
         out = StringIO()
         with redirect_stdout(out):
@@ -88,7 +92,7 @@ class UnifiedHandoffTests(unittest.TestCase):
     def test_new_supplier_parent_is_appended_without_breaking_old_history_source(self):
         other = self.root / "second-supplier" / "另一个产品"
         other.mkdir(parents=True)
-        Image.new("RGB", (90, 160), "black").save(other / "front.png")
+        (other / "front.png").write_bytes(MINIMAL_PNG)
         updated = run.bootstrap_product(self.workspace, other)
         self.assertEqual(
             updated["catalogs"],

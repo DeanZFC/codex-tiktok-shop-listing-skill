@@ -1,10 +1,48 @@
-# TikTok Shop 通用上架 Skill
+# TikTok 商品上架与视频制作 Skills
 
-这是一个跨品类的 Codex Skill，用于管理 TikTok Shop 商品选品、永久去重、实时供货与成本核验、销量链接排序、妙手手动采集、逐 SKU 定价、商品编辑和采集箱清理。
+仓库包含商品上架与视频制作两套 Codex Skills：上架流程管理选品、供货与成本核验、妙手采集和 SKU 编辑；视频流程从指定产品资料目录生成参考帧、视频及发布文案。
 
 仓库只包含流程、脚本和默认配置，不包含商品库、选品历史、Cookie、Token、密码或浏览器登录状态。
 
-## 安装
+## 新电脑制作视频
+
+视频 Skill 位于 `skills/swimwear-tiktok-video-workflow`，支持牛仔裤、泳装和其他服装。新电脑安装一次，以后在 Codex 对话中给出单个产品的内容/图片文件夹即可。
+
+把下面这段发给新电脑的 Codex，并替换最后的产品目录：
+
+```text
+请从 https://github.com/DeanZFC/codex-tiktok-shop-listing-skill 拉取代码。
+阅读 README.md，安装 swimwear-tiktok-video-workflow 技能和本地依赖，运行 doctor。
+然后用这个技能制作视频。产品内容和图片目录：<这里填本机产品文件夹的绝对路径>。
+默认网页生图和视频生成；需要登录哪个网站时，打开 Codex 内置浏览器让我登录。
+登录成功后继续，不要反复创建令牌。视频模型按页面积分从便宜到贵尝试，每次低于300积分，遵守工作流重试上限。
+成片后同时保存店铺标题、内容、尺寸、视频正文与最多5个标签，以及不超过30字符的链接标题。
+```
+
+macOS/Linux 安装命令：
+
+```bash
+git clone https://github.com/DeanZFC/codex-tiktok-shop-listing-skill.git
+cd codex-tiktok-shop-listing-skill
+python3 install_video.py
+```
+
+依赖 Python 3.10+ 和 FFmpeg/FFprobe。安装器创建独立 Python 环境，安装路径默认为 `~/.codex/skills/swimwear-tiktok-video-workflow`（支持 CODEX_HOME）。安装后让 Codex 阅读该技能；若未自动发现，重新打开对话或直接指定 SKILL.md 的绝对路径。
+
+```bash
+~/.codex/skills/swimwear-tiktok-video-workflow/.venv/bin/python ~/.codex/skills/swimwear-tiktok-video-workflow/scripts/run.py doctor
+~/.codex/skills/swimwear-tiktok-video-workflow/.venv/bin/python ~/.codex/skills/swimwear-tiktok-video-workflow/scripts/run.py start "/本机/产品资料目录"
+```
+
+start 创建本地任务，Codex 随后按技能继续网页生成、下载和验收。默认输出 `~/TikTokVideoWorkspace/已做/日期/001-货号`，可传 `--workspace` 改位置。恢复任务用 `run.py task TASK_DIR status`。
+
+账号要求：Codex 桌面端需要用户正常登录；生成阶段只需 toapi.top 账号和积分。API 密钥是可选配置；默认网页流程无需它。公开 GitHub 拉取无需登录，TikTok Shop/妙手仅上架发布时需要，Otuapp/Zexapi 不属于新流程必登项。
+
+生成页面未登录或会话失效时，Codex 显示内置浏览器登录页，等待用户登录后继续。账号密码、Cookie、令牌和产品资料不提交到 Git。网页自动操作依赖目标电脑实际提供的浏览器控制工具。Windows 原生 Python 暂不支持此视频状态机；可在 WSL2 运行 CLI，但桌面浏览器文件互通仍需目标机验证。
+
+更新时在克隆目录执行 `git pull --ff-only` 和 `python3 install_video.py --replace`，安装器先备份旧技能。旧电脑进行中任务和跨机去重不会自动迁移。详见 [视频安装说明](skills/swimwear-tiktok-video-workflow/references/setup.md)。
+
+## 商品上架 Skill 安装
 
 这是公开仓库，不需要登录 GitHub。最简单的安装方式是在另一台电脑的 Codex 中直接发送下面这句话和地址：
 

@@ -4,3 +4,15 @@ __pycache__/
 .venv/
 .pytest_cache/
 .tiktok-shop-listing/
+.env
+.env.*
+!.env.example
+cookies*.txt
+*token*.json
+*credentials*.json
+browser-profile/
+TikTokVideoWorkspace/
+已做/
+链接/
+.swimwear-tiktok-video-workflow/
+.swimwear-link-selection/

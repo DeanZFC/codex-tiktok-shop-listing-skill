@@ -1,0 +1,4 @@
+interface:
+  display_name: "TikTok 服装视频制作"
+  short_description: "从指定产品资料目录制作服装视频，按需网页登录并生成商品和发布文案"
+  default_prompt: "使用 $swimwear-tiktok-video-workflow 为我指定的产品资料目录制作视频，需要登录时打开内置浏览器。"

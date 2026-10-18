@@ -3,6 +3,7 @@ from io import StringIO
 import argparse
 import base64
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -21,6 +22,7 @@ MINIMAL_PNG = base64.b64decode(
 )
 
 
+@unittest.skipUnless(os.name == "posix", "视频状态后端只在 POSIX/WSL2 中运行")
 class UnifiedHandoffTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="unified-handoff-")

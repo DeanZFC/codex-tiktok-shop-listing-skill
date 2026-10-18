@@ -11,7 +11,11 @@ import shutil
 import sys
 
 import listing_workflow
-import workflow
+
+if os.name == "posix":
+    import workflow
+else:
+    workflow = None
 
 
 DEFAULT_WORKSPACE = Path(

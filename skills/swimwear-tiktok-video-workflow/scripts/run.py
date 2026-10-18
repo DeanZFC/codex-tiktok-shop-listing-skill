@@ -40,7 +40,7 @@ def main(argv=None):
     if args.command == "doctor":
         return doctor()
     if os.name != "posix" or sys.version_info < (3, 10):
-        parser.error("需要 macOS/Linux 的 Python 3.10+；Windows 请在 WSL2 中运行，浏览器本地文件互通需另行验证")
+        parser.error("需要 macOS/Linux 的 Python 3.10+；Windows 请运行 scripts/windows.py，通过已安装的 WSL2 后端执行")
     import workflow
     try:
         if args.command == "start":

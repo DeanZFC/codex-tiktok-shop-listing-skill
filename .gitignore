@@ -11,6 +11,7 @@ cookies*.txt
 *token*.json
 *credentials*.json
 browser-profile/
+wsl-runtime.json
 TikTokVideoWorkspace/
 已做/
 链接/

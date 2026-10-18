@@ -1,0 +1,40 @@
+name: Video workflow tests
+on:
+  push:
+    paths:
+      - 'skills/swimwear-tiktok-video-workflow/**'
+      - 'install_video*.py'
+      - 'tests/**'
+      - '.github/workflows/video-tests.yml'
+  pull_request:
+    paths:
+      - 'skills/swimwear-tiktok-video-workflow/**'
+      - 'install_video*.py'
+      - 'tests/**'
+      - '.github/workflows/video-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-launcher:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Windows installation and bridge unit tests (WSL calls mocked)
+        run: python -m unittest discover -s tests -v
+  linux-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: python -m pip install -r skills/swimwear-tiktok-video-workflow/requirements.txt
+      - run: python -m unittest discover -s tests -v
+      - run: python -m unittest discover -s skills/swimwear-tiktok-video-workflow/tests -v

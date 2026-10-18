@@ -14,16 +14,16 @@ class InstallVideoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             codex_dir = Path(temporary) / "codex"
             args = [sys.executable, str(INSTALLER), "--codex-dir", str(codex_dir), "--skip-deps"]
-            first = subprocess.run(args, capture_output=True, text=True)
+            first = subprocess.run(args, capture_output=True, text=True, encoding="utf-8")
             self.assertEqual(first.returncode, 0, first.stderr)
             target = Path(json.loads(first.stdout)["installed"])
             self.assertTrue((target / "scripts" / "run.py").is_file())
             marker = target / "local-change.txt"
             marker.write_text("keep this", encoding="utf-8")
-            refusal = subprocess.run(args, capture_output=True, text=True)
+            refusal = subprocess.run(args, capture_output=True, text=True, encoding="utf-8")
             self.assertEqual(refusal.returncode, 2)
             self.assertEqual(marker.read_text(), "keep this")
-            update = subprocess.run([*args, "--replace"], capture_output=True, text=True)
+            update = subprocess.run([*args, "--replace"], capture_output=True, text=True, encoding="utf-8")
             self.assertEqual(update.returncode, 0, update.stderr)
             backup = Path(json.loads(update.stdout)["backup"])
             self.assertEqual((backup / marker.name).read_text(), "keep this")

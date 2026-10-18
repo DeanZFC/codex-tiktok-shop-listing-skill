@@ -19,6 +19,22 @@
 成片后同时保存店铺标题、内容、尺寸、视频正文与最多5个标签，以及不超过30字符的链接标题。
 ```
 
+Windows 电脑把提示中安装那一行改成：
+
+```text
+这是 Windows 电脑。请按 references/windows.md 安装：检查 Python、Git、WSL2 Ubuntu，使用 install_video_windows.py 安装，运行 windows.py doctor，并用隔离样例验证文件往返传递。产品目录为 D:\TikTok素材\001-蓝色牛仔裤。需要系统重启或首次创建 Ubuntu 用户时告诉我，网站登录则打开 Codex 内置浏览器。以后由你执行命令，我只提供产品目录。成片和文案复制回 Windows 文件夹。
+```
+
+Windows 安装入口（WSL2 Ubuntu 中先安装 Python 3.10+、python3-venv 和 FFmpeg）：
+
+```powershell
+git clone https://github.com/DeanZFC/codex-tiktok-shop-listing-skill.git
+cd codex-tiktok-shop-listing-skill
+py -3 install_video_windows.py
+```
+
+详细步骤见 [Windows 安装与文件传递](skills/swimwear-tiktok-video-workflow/references/windows.md)。安装器把技能放入 Windows Codex 技能目录，处理后端放入 WSL2；用户的产品图片可以留在 Windows。缺少 WSL2 时首次安装可能要求管理员权限和重启，不能跳过系统提示。
+
 macOS/Linux 安装命令：
 
 ```bash
@@ -38,9 +54,9 @@ start 创建本地任务，Codex 随后按技能继续网页生成、下载和�
 
 账号要求：Codex 桌面端需要用户正常登录；生成阶段只需 toapi.top 账号和积分。API 密钥是可选配置；默认网页流程无需它。公开 GitHub 拉取无需登录，TikTok Shop/妙手仅上架发布时需要，Otuapp/Zexapi 不属于新流程必登项。
 
-生成页面未登录或会话失效时，Codex 显示内置浏览器登录页，等待用户登录后继续。账号密码、Cookie、令牌和产品资料不提交到 Git。网页自动操作依赖目标电脑实际提供的浏览器控制工具。Windows 原生 Python 暂不支持此视频状态机；可在 WSL2 运行 CLI，但桌面浏览器文件互通仍需目标机验证。
+生成页面未登录或会话失效时，Codex 显示内置浏览器登录页，等待用户登录后继续。账号密码、Cookie、令牌和产品资料不提交到 Git。Windows 通过 `windows.py` 转换路径及传递文件，状态机在 WSL2 运行。网页自动操作依赖目标电脑实际提供的浏览器控制和上传/下载工具，首次执行需在目标机检查，不能用单元测试代替实际验证。
 
-更新时在克隆目录执行 `git pull --ff-only` 和 `python3 install_video.py --replace`，安装器先备份旧技能。旧电脑进行中任务和跨机去重不会自动迁移。详见 [视频安装说明](skills/swimwear-tiktok-video-workflow/references/setup.md)。
+更新时在克隆目录执行 `git pull --ff-only`，macOS/Linux 再执行 `python3 install_video.py --replace`，Windows 执行 `py -3 install_video_windows.py --replace`。安装器先备份旧技能。旧电脑进行中任务和跨机去重不会自动迁移。详见 [视频安装说明](skills/swimwear-tiktok-video-workflow/references/setup.md)。
 
 ## 商品上架 Skill 安装
 

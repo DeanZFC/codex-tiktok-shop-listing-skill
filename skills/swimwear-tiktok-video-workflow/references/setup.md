@@ -4,7 +4,7 @@
 
 在 macOS/Linux 上克隆后运行仓库根目录的 `python3 install_video.py`。安装器将技能复制到 `${CODEX_HOME:-~/.codex}/skills/swimwear-tiktok-video-workflow`，创建独立 `.venv` 并安装 requirements.txt。更新先 `git pull --ff-only`，再 `python3 install_video.py --replace`；旧技能会备份到 Codex 目录下的 `skill-backups`，本地产品和任务不在安装目录中。
 
-系统依赖 Python 3.10+、Git、FFmpeg（包含 ffprobe）。macOS 可用 `brew install python ffmpeg`；Linux 使用系统包管理器安装 python3-venv 和 ffmpeg。Windows 原生 Python 不支持现有 POSIX 目录锁和原子发布接口；可在 WSL2 使用 CLI，但 Codex 桌面浏览器与 WSL 文件上传/下载路径需在目标机核验，不保证一键全自动。不要为了安装自动抹掉已有环境。
+系统依赖 Python 3.10+、Git、FFmpeg（包含 ffprobe）。macOS 可用 `brew install python ffmpeg`；Linux 使用系统包管理器安装 python3-venv 和 ffmpeg。Windows 使用仓库根目录的 `install_video_windows.py`，完整步骤和浏览器文件桥接见 [windows.md](windows.md)。该安装器把技能放入 Windows Codex 目录，处理后端放入 WSL2，不依赖旧 Mac 路径。不要为了安装自动抹掉已有环境。
 
 安装后读取技能并运行 `scripts/run.py doctor`。doctor 只报告是否配置 API，不输出密钥。新电脑应有可操作的 Codex 内置浏览器、图片查看及媒体处理工具；只能打开网页而没有浏览器控制工具时，网页上传生成不能声称已经自动完成。
 

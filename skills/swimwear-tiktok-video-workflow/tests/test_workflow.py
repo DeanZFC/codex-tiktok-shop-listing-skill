@@ -3296,8 +3296,8 @@ class ImageLifecycleTests(unittest.TestCase):
 
 
 class VideoLifecycleTests(unittest.TestCase):
-    FFMPEG = "/opt/homebrew/bin/ffmpeg"
-    FFPROBE = "/opt/homebrew/bin/ffprobe"
+    FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
+    FFPROBE = shutil.which("ffprobe") or "ffprobe"
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

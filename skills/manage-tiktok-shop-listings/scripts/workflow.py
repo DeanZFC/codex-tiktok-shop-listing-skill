@@ -473,11 +473,11 @@ def _link_product_path(
         or recorded_canonical != canonical_key
     ):
         raise WorkflowError(f"链接选品历史货号去重键不一致：{product_name}")
-    if entry.get("status") != "miaoshou_collected":
+    if entry.get("status") != "tiktok_published":
         return None
     output_value = entry.get("output_dir")
     if not isinstance(output_value, str) or not output_value:
-        raise WorkflowError(f"已采集商品缺少链接输出目录：{product_name}")
+        raise WorkflowError(f"已发布商品缺少链接输出目录：{product_name}")
     output_path = Path(output_value).expanduser()
     if not output_path.is_absolute():
         raise WorkflowError(f"链接输出目录必须是绝对路径：{product_name}")
@@ -867,7 +867,6 @@ def _validate_active_task(config: Config, task) -> None:
     if config.source_product is not None:
         source_matches_catalog = (
             resolved_source == config.source_product.expanduser().resolve(strict=True)
-            and _direct_product_name(resolved_source) == product_name
         )
     legacy_source = (
         LEGACY_CATALOG.expanduser().resolve(strict=False) / product_name
@@ -4035,6 +4034,63 @@ def _new_task(product_name: str, source: Path, target: Path) -> dict:
         "created_at": timestamp,
         "updated_at": timestamp,
     }
+
+
+def attach_published_listing(
+    source: Path,
+    target: Path,
+    product_name: str,
+    image_mode: str = "website",
+) -> dict:
+    """Create or resume video state inside one already-published listing directory."""
+    if image_mode not in {"website", "api-first"}:
+        raise WorkflowError("生图模式非法")
+    if not _valid_product_name(product_name):
+        raise WorkflowError("商品货号非法")
+    source_path = _canonical_existing_directory(Path(source).expanduser(), "供应商商品目录")
+    target_path = _canonical_existing_directory(Path(target).expanduser(), "已发布商品目录")
+    target_match = TASK_DIR_PATTERN.fullmatch(target_path.name)
+    if (
+        target_match is None
+        or int(target_match.group(1)) < 1
+        or target_match.group(2) != product_name
+        or DATE_DIR_PATTERN.fullmatch(target_path.parent.name) is None
+        or not _valid_iso_date(target_path.parent.name)
+    ):
+        raise WorkflowError("已发布商品目录必须使用 日期/NNN-货号 格式并匹配商品货号")
+    if source_path == target_path or source_path.is_relative_to(target_path) or target_path.is_relative_to(
+        source_path
+    ):
+        raise WorkflowError("供应商商品目录与已发布商品目录不能重叠")
+    image_dir = target_path / "图片制作"
+    video_dir = target_path / "视频制作"
+    for directory in (image_dir, video_dir):
+        if directory.exists() or directory.is_symlink():
+            _assert_real_directory(directory, directory.name)
+        else:
+            directory.mkdir(mode=0o700)
+    config = Config(
+        catalog=source_path.parent,
+        done_root=target_path.parent.parent,
+        state_file=task_state_file(target_path),
+        source_product=source_path,
+    )
+    with _workflow_lock(config):
+        existing = load_state(config)
+        if existing["active_task"] is not None:
+            active = existing["active_task"]
+            if (
+                active["product_name"] != product_name
+                or Path(active["source_dir"]).resolve() != source_path
+                or Path(active["task_dir"]).resolve() != target_path
+            ):
+                raise WorkflowError("已有视频任务与当前已发布商品不一致")
+            return active
+        task = _new_task(product_name, source_path, target_path)
+        task["image_mode"] = image_mode
+        state_value = {"version": 1, "active_task": task}
+        save_state_atomic(config, state_value)
+        return task
 
 
 def _create_task(

@@ -1710,7 +1710,7 @@ class LinkSelectionTests(unittest.TestCase):
         *,
         day: str,
         number: int,
-        status: str = "miaoshou_collected",
+        status: str = "tiktok_published",
         missing: str | None = None,
     ) -> Path:
         product = self.catalog / day / f"{number:03d}-{product_name}"
@@ -1801,7 +1801,7 @@ class LinkSelectionTests(unittest.TestCase):
                 "product_key": "Q964",
                 "canonical_key": "q964",
                 "output_dir": str(linked_date / "001-Q964"),
-                "status": "miaoshou_collected",
+                "status": "tiktok_published",
             }
         )
         self.write_history()

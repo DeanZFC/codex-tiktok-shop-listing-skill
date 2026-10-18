@@ -8,7 +8,7 @@
 <WORKSPACE>/.tiktok-shop-listing/config.json
 ```
 
-路径相对工作区解析；`catalog_roots` 也允许本机绝对路径。`output_root` 与 `state_root` 必须位于工作区内。可设置环境变量 `TIKTOK_LISTING_WORKSPACE` 作为默认工作区，也可每次传入 `--root`。
+路径相对工作区解析；`catalog_roots` 也允许本机绝对路径。`output_root` 与 `state_root` 必须位于工作区内。主入口默认使用 `~/TikTokShopWorkspace`，可设置 `TIKTOK_SHOP_WORKSPACE` 或传 `run.py --workspace` 修改；直接调用底层 `listing_workflow.py` 时仍可使用 `TIKTOK_LISTING_WORKSPACE` 或 `--root`。
 
 至少完成以下设置：
 
@@ -78,7 +78,7 @@ python -m pip install Pillow
 
 ## 换电脑
 
-安装 Skill 后在新电脑重新运行 `init-config` 并填写该电脑路径。GitHub 仓库不会携带业务状态。
+安装 Skill 后，主入口 `run.py start PRODUCT_DIR --product-code CODE` 会自动创建配置并把该产品父目录追加到 `catalog_roots`；加入新目录会保留旧 history，但清空旧供货文档绑定。GitHub 仓库不会携带业务状态。
 
 如需延续去重记录，单独复制：
 

@@ -28,6 +28,7 @@ else:
 HISTORY_VERSION = 1
 EVIDENCE_VERSION = 1
 PRICING_EVIDENCE_VERSION = 1
+PUBLICATION_RECORD_VERSION = 1
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 NUMBERED_RE = re.compile(r"^(\d{3})-(.+)$")
 CELL_REFERENCE_RE = re.compile(r"^\$?[A-Z]{1,3}\$?[1-9]\d*$", re.IGNORECASE)
@@ -1359,6 +1360,152 @@ def command_mark_collected(args: argparse.Namespace, context: dict) -> int:
     return 0
 
 
+def normalized_publication_records(stores: list[str], product_ids: list[str], config: dict) -> list[dict]:
+    if not stores or len(stores) != len(product_ids):
+        raise ValueError("Each published store must have exactly one TikTok product ID")
+    expected_count = config["publication"]["expected_store_count"]
+    if len(stores) != expected_count:
+        raise ValueError(
+            f"Published store count must equal publication.expected_store_count ({expected_count})"
+        )
+    records = []
+    seen_stores = set()
+    seen_product_ids = set()
+    for raw_store, raw_product_id in zip(stores, product_ids):
+        store = raw_store.strip()
+        product_id = raw_product_id.strip()
+        if not store or any(character in store for character in "\r\n\0"):
+            raise ValueError("Published store names must be non-empty single-line values")
+        if not product_id or any(character in product_id for character in "\r\n\0"):
+            raise ValueError("TikTok product IDs must be non-empty single-line values")
+        store_key = normalize_identifier(store)
+        if store_key in seen_stores:
+            raise ValueError(f"Published store is duplicated: {store}")
+        if product_id in seen_product_ids:
+            raise ValueError(f"TikTok product ID is duplicated: {product_id}")
+        seen_stores.add(store_key)
+        seen_product_ids.add(product_id)
+        records.append({"store": store, "product_id": product_id})
+
+    publication = config["publication"]
+    if publication["store_selection"] == "named":
+        configured = {normalize_identifier(name): name for name in publication["store_names"]}
+        actual = {normalize_identifier(record["store"]): record["store"] for record in records}
+        if set(actual) != set(configured):
+            raise ValueError(
+                "Published stores must exactly match publication.store_names; "
+                f"expected={list(configured.values())}, actual={list(actual.values())}"
+            )
+        records.sort(key=lambda record: list(configured).index(normalize_identifier(record["store"])))
+    else:
+        records.sort(key=lambda record: normalize_identifier(record["store"]))
+    return records
+
+
+def validated_publication_record(entry: dict, config: dict) -> dict:
+    publication = entry.get("tiktok_publication")
+    if not isinstance(publication, dict) or publication.get("version") != PUBLICATION_RECORD_VERSION:
+        raise ValueError("Published listing is missing a valid TikTok publication record")
+    if publication.get("publish_mode") != config["publication"]["publish_mode"]:
+        raise ValueError("Published listing publish mode no longer matches the configured workflow")
+    parse_timestamp(publication.get("published_at"), "TikTok publication")
+    raw_records = publication.get("records")
+    if not isinstance(raw_records, list) or not all(isinstance(record, dict) for record in raw_records):
+        raise ValueError("TikTok publication records must be a list of store/product ID objects")
+    records = normalized_publication_records(
+        [record.get("store", "") for record in raw_records],
+        [record.get("product_id", "") for record in raw_records],
+        config,
+    )
+    return {**publication, "records": records}
+
+
+def command_mark_published(args: argparse.Namespace, context: dict) -> int:
+    output_dir = Path(args.output_dir).expanduser().resolve()
+    if not output_dir.is_dir() or not output_dir.is_relative_to(context["output_root"]):
+        raise ValueError("Output directory must exist inside output_root")
+    records = normalized_publication_records(args.stores, args.product_ids, context["config"])
+    with locked(context):
+        history = load_history(context["history"])
+        entry = find_entry_by_output(history, output_dir, context)
+        existing = entry.get("tiktok_publication")
+        if entry.get("status") == "tiktok_published":
+            validated = validated_publication_record(entry, context["config"])
+            if validated.get("records") == records:
+                print(
+                    json.dumps(
+                        {
+                            "history_file": str(context["history"]),
+                            "idempotent": True,
+                            "entry": entry,
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
+                return 0
+            raise ValueError("Product is already published with different store or product ID records")
+        if entry.get("status") != "miaoshou_collected":
+            raise ValueError(f"Product status cannot be marked published: {entry.get('status')}")
+        requested_ids = {record["product_id"] for record in records}
+        for other in history["products"]:
+            if other is entry or other.get("status") != "tiktok_published":
+                continue
+            other_publication = validated_publication_record(other, context["config"])
+            duplicated = requested_ids & {record["product_id"] for record in other_publication["records"]}
+            if duplicated:
+                raise ValueError(
+                    "TikTok product ID is already bound to another listing: "
+                    + ", ".join(sorted(duplicated))
+                )
+        publication = {
+            "version": PUBLICATION_RECORD_VERSION,
+            "published_at": now_iso(),
+            "publish_mode": context["config"]["publication"]["publish_mode"],
+            "records": records,
+        }
+        entry["tiktok_publication"] = publication
+        entry["status"] = "tiktok_published"
+        atomic_write_json(context["history"], history)
+    print(
+        json.dumps(
+            {
+                "history_file": str(context["history"]),
+                "idempotent": False,
+                "publication": publication,
+                "entry": entry,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def command_video_ready(args: argparse.Namespace, context: dict) -> int:
+    output_dir = Path(args.output_dir).expanduser().resolve()
+    if not output_dir.is_dir() or not output_dir.is_relative_to(context["output_root"]):
+        raise ValueError("Output directory must exist inside output_root")
+    with locked(context):
+        history = load_history(context["history"])
+        entry = find_entry_by_output(history, output_dir, context)
+        if entry.get("status") != "tiktok_published":
+            raise ValueError("Video creation requires a confirmed tiktok_published listing")
+        publication = validated_publication_record(entry, context["config"])
+        source_dir = source_path_from_entry(entry, context)
+        if not source_dir.is_dir():
+            raise ValueError("The original supplier product directory is unavailable")
+        result = {
+            "ready": True,
+            "product_code": entry["product_code"],
+            "source_dir": str(source_dir),
+            "listing_output_dir": str(output_dir),
+            "publication": publication,
+        }
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
 def command_history(args: argparse.Namespace, context: dict) -> int:
     history = load_history(context["history"])
     print(json.dumps({"history_file": str(context["history"]), **history}, ensure_ascii=False, indent=2))
@@ -1540,6 +1687,20 @@ def build_parser() -> argparse.ArgumentParser:
     collected.add_argument("--resolved-url", dest="resolved_urls", action="append", default=[])
     collected.set_defaults(func=command_mark_collected)
 
+    published = subparsers.add_parser(
+        "mark-published", help="Record confirmed TikTok publication IDs for every configured store"
+    )
+    published.add_argument("output_dir")
+    published.add_argument("--store", dest="stores", action="append", required=True)
+    published.add_argument("--product-id", dest="product_ids", action="append", required=True)
+    published.set_defaults(func=command_mark_published)
+
+    video_ready = subparsers.add_parser(
+        "video-ready", help="Return the exact published listing that may enter video production"
+    )
+    video_ready.add_argument("output_dir")
+    video_ready.set_defaults(func=command_video_ready)
+
     history = subparsers.add_parser("history", help="Print permanent listing history")
     history.set_defaults(func=command_history)
 
@@ -1552,10 +1713,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     configure_stdio()
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     root = Path(args.root).expanduser().resolve()
     config_path = config_path_for(root, args.config)
     try:

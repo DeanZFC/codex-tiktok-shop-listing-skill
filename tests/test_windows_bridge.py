@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("video_windows", ROOT / "skills/swimwear-tiktok-video-workflow/scripts/windows.py")
+spec = importlib.util.spec_from_file_location("video_windows", ROOT / "skills/manage-tiktok-shop-listings/scripts/windows.py")
 windows = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(windows)
 
@@ -86,7 +86,7 @@ class WindowsBridgeTests(unittest.TestCase):
             err = StringIO()
             with patch.object(windows, "CONFIG", Path(directory) / "missing.json"), redirect_stderr(err):
                 self.assertEqual(windows.main(["doctor"]), 2)
-            self.assertIn("install_video_windows.py", err.getvalue())
+            self.assertIn("install_workflow_windows.py", err.getvalue())
 
 
 if __name__ == "__main__":

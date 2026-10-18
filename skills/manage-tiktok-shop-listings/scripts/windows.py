@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 CONFIG = Path(__file__).resolve().parents[1] / "wsl-runtime.json"
-SCRIPTS = {"openai_image.py", "toapi_image.py", "salvage_merge.py", "workflow.py"}
+SCRIPTS = {"openai_image.py", "toapi_image.py", "salvage_merge.py", "workflow.py", "listing_workflow.py"}
 
 
 class WslBridge:
@@ -47,7 +47,7 @@ class WslBridge:
         if self.skill_dir is None:
             raise ValueError("缺少 WSL 技能安装配置，请重新运行安装器")
         converted = [self.to_linux(arg) for arg in arguments]
-        if script == "run.py" and converted and converted[0] == "start":
+        if script == "run.py":
             for index, value in enumerate(converted):
                 if value == "--workspace" and index + 1 < len(converted):
                     workspace = converted[index + 1]
@@ -86,16 +86,17 @@ class WslBridge:
 def main(argv=None):
     arguments = list(sys.argv[1:] if argv is None else argv)
     if not arguments or arguments[0] in ("-h", "--help"):
-        print("windows.py doctor | start PRODUCT_DIR | task TASK_DIR COMMAND ...\n"
+        print("windows.py doctor | start PRODUCT_DIR --product-code CODE | listing COMMAND ...\n"
+              "windows.py start-video OUTPUT_DIR | task OUTPUT_DIR COMMAND ...\n"
               "windows.py path LINUX_PATH\nwindows.py copy SOURCE_FILE DESTINATION_FILE\n"
               "windows.py script SCRIPT_NAME ARGUMENTS ...\n"
               "Windows 路径会自动转换；任务输出保留 Linux 路径，并另附 windows_paths。")
         return 0
     try:
         command = arguments[0]
-        if command in ("start", "task") and len(arguments) < 2:
+        if command in ("start", "start-video", "task") and len(arguments) < 2:
             raise ValueError(f"{command} 需要绝对产品目录或任务目录")
-        if command in ("start", "task"):
+        if command in ("start", "start-video", "task"):
             candidate = arguments[1]
             if not (candidate.startswith("/") or PureWindowsPath(candidate).is_absolute()):
                 raise ValueError("请提供 Windows 盘符或 Linux 根目录开头的绝对路径")
@@ -119,7 +120,7 @@ def main(argv=None):
             if len(arguments) < 2 or arguments[1] not in SCRIPTS:
                 raise ValueError("允许的脚本：" + ", ".join(sorted(SCRIPTS)))
             script, arguments = arguments[1], arguments[2:]
-        elif command not in ("doctor", "start", "task"):
+        elif command not in ("doctor", "start", "start-video", "listing", "task"):
             raise ValueError("未知命令；请运行 windows.py --help")
         result = bridge.run(arguments, script)
         if result.stderr:
@@ -132,7 +133,7 @@ def main(argv=None):
             print(json.dumps({"result": payload, "windows_paths": bridge.paths_in(payload)}, ensure_ascii=False, indent=2))
         return result.returncode
     except (OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError) as exc:
-        print(f"Windows/WSL 桥接失败：{exc}\n请检查 WSL2 发行版与 wsl-runtime.json；首次安装运行 install_video_windows.py。", file=sys.stderr)
+        print(f"Windows/WSL 桥接失败：{exc}\n请检查 WSL2 发行版与 wsl-runtime.json；首次安装运行 install_workflow_windows.py。", file=sys.stderr)
         return 2
 
 

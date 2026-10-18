@@ -5,8 +5,8 @@ import sys
 import tempfile
 import unittest
 
-INSTALLER = Path(__file__).resolve().parents[1] / "install_video.py"
-NAME = "swimwear-tiktok-video-workflow"
+INSTALLER = Path(__file__).resolve().parents[1] / "install_workflow.py"
+NAME = "manage-tiktok-shop-listings"
 
 
 class InstallVideoTests(unittest.TestCase):
@@ -18,6 +18,8 @@ class InstallVideoTests(unittest.TestCase):
             self.assertEqual(first.returncode, 0, first.stderr)
             target = Path(json.loads(first.stdout)["installed"])
             self.assertTrue((target / "scripts" / "run.py").is_file())
+            self.assertTrue((target / "scripts" / "listing_workflow.py").is_file())
+            self.assertTrue((target / "scripts" / "workflow.py").is_file())
             marker = target / "local-change.txt"
             marker.write_text("keep this", encoding="utf-8")
             refusal = subprocess.run(args, capture_output=True, text=True, encoding="utf-8")

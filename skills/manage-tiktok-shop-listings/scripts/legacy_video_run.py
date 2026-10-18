@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Portable product/task entry point. No login secrets are stored here."""
+"""Compatibility entry point for video-only tasks created before the unified workflow."""
 import argparse
 import importlib.util
 import json
@@ -22,25 +22,25 @@ def doctor():
         "browser_login": "Codex 在实际使用 toapi.top 时检查登录，需要时打开内置浏览器",
     }
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if all(report[k] for k in ("supported_runtime", "Pillow", "ffmpeg", "ffprobe")) else 2
+    return 0 if all(report[key] for key in ("supported_runtime", "Pillow", "ffmpeg", "ffprobe")) else 2
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="从指定产品资料目录启动或恢复 TikTok 视频")
-    sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("doctor")
-    start = sub.add_parser("start")
+    parser = argparse.ArgumentParser(description="恢复合并前的视频-only任务")
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("doctor")
+    start = commands.add_parser("start")
     start.add_argument("product", type=Path)
     start.add_argument("--workspace", type=Path, default=Path(os.environ.get("TIKTOK_VIDEO_WORKSPACE", Path.home() / "TikTokVideoWorkspace")))
     start.add_argument("--image-mode", choices=("website", "api-first"), default="website")
-    task = sub.add_parser("task")
+    task = commands.add_parser("task")
     task.add_argument("directory", type=Path)
     task.add_argument("operation", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if args.command == "doctor":
         return doctor()
     if os.name != "posix" or sys.version_info < (3, 10):
-        parser.error("需要 macOS/Linux 的 Python 3.10+；Windows 请运行 scripts/windows.py，通过已安装的 WSL2 后端执行")
+        parser.error("需要 macOS/Linux 的 Python 3.10+；Windows 旧任务请在原安装中完成或单独迁移")
     import workflow
     try:
         if args.command == "start":

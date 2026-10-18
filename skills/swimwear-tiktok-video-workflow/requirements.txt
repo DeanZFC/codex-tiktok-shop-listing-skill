@@ -1,4 +1,0 @@
-Pillow>=10,<13
-openai>=1.66,<3
-certifi>=2024.2.2
-PyYAML>=6,<7

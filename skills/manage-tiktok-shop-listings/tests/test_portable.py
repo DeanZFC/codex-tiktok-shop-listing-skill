@@ -8,7 +8,7 @@ import unittest
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNNER = ROOT / "scripts" / "run.py"
+RUNNER = ROOT / "scripts" / "legacy_video_run.py"
 
 
 class PortableTests(unittest.TestCase):

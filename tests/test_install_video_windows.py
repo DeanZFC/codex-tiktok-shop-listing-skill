@@ -11,10 +11,10 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("install_windows", ROOT / "install_video_windows.py")
+spec = importlib.util.spec_from_file_location("install_windows", ROOT / "install_workflow_windows.py")
 installer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installer)
-NAME = "swimwear-tiktok-video-workflow"
+NAME = "manage-tiktok-shop-listings"
 
 
 class WindowsInstallerTests(unittest.TestCase):
@@ -34,11 +34,11 @@ class WindowsInstallerTests(unittest.TestCase):
             with patch.object(installer, "os", SimpleNamespace(name="nt", environ={})), patch.object(installer, "WslBridge") as bridge_class, patch.object(installer.subprocess, "run", side_effect=local_install) as local, redirect_stdout(StringIO()):
                 bridge = bridge_class.return_value
                 bridge.exec.side_effect = [self.preflight(), subprocess.CompletedProcess([], 0), subprocess.CompletedProcess([], 0)]
-                bridge.to_linux.return_value = "/mnt/d/repo/install_video.py"
+                bridge.to_linux.return_value = "/mnt/d/repo/install_workflow.py"
                 self.assertEqual(installer.main(["--codex-dir", str(root), "--distro", "Ubuntu"]), 0)
                 self.assertEqual(bridge.exec.call_args_list[2].args[0][-1], "doctor")
                 local.assert_called_once()
-            self.assertEqual(json.loads((target / "wsl-runtime.json").read_text(encoding="utf-8")), {"distro": "Ubuntu", "skill_dir": "/home/test user/.local/share/tiktok-video/codex/skills/" + NAME})
+            self.assertEqual(json.loads((target / "wsl-runtime.json").read_text(encoding="utf-8")), {"distro": "Ubuntu", "skill_dir": "/home/test user/.local/share/tiktok-shop-workflow/codex/skills/" + NAME})
 
     def test_wsl1_or_missing_dependency_never_copies_windows_skill(self):
         for changes in ({"kernel": "4.4.0-Microsoft"}, {"ffprobe": None}, {"python": [3, 9]}):
@@ -57,7 +57,7 @@ class WindowsInstallerTests(unittest.TestCase):
             marker.write_text("keep", encoding="utf-8")
             with patch.object(installer, "os", SimpleNamespace(name="nt", environ={})), patch.object(installer, "WslBridge") as bridge_class, patch.object(installer.subprocess, "run") as local, redirect_stderr(StringIO()):
                 bridge_class.return_value.exec.side_effect = [self.preflight(), subprocess.CalledProcessError(1, ["python3"], stderr="dependency install failed\n")]
-                bridge_class.return_value.to_linux.return_value = "/mnt/d/repo/install_video.py"
+                bridge_class.return_value.to_linux.return_value = "/mnt/d/repo/install_workflow.py"
                 self.assertEqual(installer.main(["--codex-dir", directory, "--replace"]), 2)
                 local.assert_not_called()
             self.assertEqual(marker.read_text(), "keep")

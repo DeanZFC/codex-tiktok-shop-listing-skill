@@ -1,15 +1,17 @@
-name: Video workflow tests
+name: TikTok listing and video workflow tests
 on:
   push:
     paths:
+      - 'skills/manage-tiktok-shop-listings/**'
       - 'skills/swimwear-tiktok-video-workflow/**'
-      - 'install_video*.py'
+      - 'install_*.py'
       - 'tests/**'
       - '.github/workflows/video-tests.yml'
   pull_request:
     paths:
+      - 'skills/manage-tiktok-shop-listings/**'
       - 'skills/swimwear-tiktok-video-workflow/**'
-      - 'install_video*.py'
+      - 'install_*.py'
       - 'tests/**'
       - '.github/workflows/video-tests.yml'
   workflow_dispatch:
@@ -35,6 +37,7 @@ jobs:
         with:
           python-version: '3.12'
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg
-      - run: python -m pip install -r skills/swimwear-tiktok-video-workflow/requirements.txt
+      - run: python -m pip install -r skills/manage-tiktok-shop-listings/requirements.txt
       - run: python -m unittest discover -s tests -v
-      - run: python -m unittest discover -s skills/swimwear-tiktok-video-workflow/tests -v
+      - run: python -m unittest skills/manage-tiktok-shop-listings/scripts/test_listing_workflow.py -v
+      - run: python -m unittest discover -s skills/manage-tiktok-shop-listings/tests -v

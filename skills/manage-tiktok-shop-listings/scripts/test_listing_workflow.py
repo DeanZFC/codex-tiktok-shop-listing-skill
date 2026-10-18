@@ -159,6 +159,19 @@ class ListingWorkflowTests(unittest.TestCase):
         self.assertEqual(recorded.returncode, 0, recorded.stderr)
         return output_dir
 
+    def prepare_collected(self, name: str, code: str) -> Path:
+        output_dir = self.prepare_for_pricing(name, code, deliverables=True)
+        pricing = self.record_pricing(output_dir)
+        self.assertEqual(pricing.returncode, 0, pricing.stderr)
+        collected = self.run_cli(
+            "mark-collected",
+            str(output_dir),
+            "--resolved-url",
+            f"https://example.com/{code.casefold()}/resolved",
+        )
+        self.assertEqual(collected.returncode, 0, collected.stderr)
+        return output_dir
+
     def entry_for(self, output_dir: Path) -> dict:
         relative = output_dir.relative_to(self.root).as_posix()
         return next(
@@ -956,6 +969,184 @@ class ListingWorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("pricing", result.stderr.casefold())
         self.assertEqual(self.entry_for(output_dir)["status"], "awaiting_miaoshou_collection")
+
+    def test_mark_published_records_exact_store_product_ids_and_unlocks_video(self) -> None:
+        output_dir = self.prepare_collected("发布成功商品", "PUBLISH-100")
+        published = self.run_cli(
+            "mark-published",
+            str(output_dir),
+            "--store",
+            "Renova",
+            "--product-id",
+            "1729000000000000100",
+        )
+        self.assertEqual(published.returncode, 0, published.stderr)
+        payload = json.loads(published.stdout)
+        self.assertFalse(payload["idempotent"])
+        entry = self.entry_for(output_dir)
+        self.assertEqual(entry["status"], "tiktok_published")
+        self.assertEqual(
+            entry["tiktok_publication"]["records"],
+            [{"store": "Renova", "product_id": "1729000000000000100"}],
+        )
+
+        ready = self.run_cli("video-ready", str(output_dir))
+        self.assertEqual(ready.returncode, 0, ready.stderr)
+        ready_payload = json.loads(ready.stdout)
+        self.assertTrue(ready_payload["ready"])
+        self.assertEqual(Path(ready_payload["listing_output_dir"]), output_dir)
+        self.assertEqual(ready_payload["product_code"], "PUBLISH-100")
+        self.assertEqual(
+            Path(ready_payload["source_dir"]), self.catalog / "发布成功商品"
+        )
+
+        repeated = self.run_cli(
+            "mark-published",
+            str(output_dir),
+            "--store",
+            "Renova",
+            "--product-id",
+            "1729000000000000100",
+        )
+        self.assertEqual(repeated.returncode, 0, repeated.stderr)
+        self.assertTrue(json.loads(repeated.stdout)["idempotent"])
+
+    def test_mark_published_rejects_wrong_state_partial_or_changed_records(self) -> None:
+        waiting = self.reserve("尚未采集商品", "WAIT-PUBLISH")
+        wrong_state = self.run_cli(
+            "mark-published",
+            str(waiting),
+            "--store",
+            "Renova",
+            "--product-id",
+            "100",
+        )
+        self.assertEqual(wrong_state.returncode, 2)
+        self.assertIn("status", wrong_state.stderr)
+        self.assertEqual(self.run_cli("video-ready", str(waiting)).returncode, 2)
+
+        output_dir = self.prepare_collected("发布参数错误商品", "PUBLISH-ERROR")
+        missing_id = self.run_cli(
+            "mark-published", str(output_dir), "--store", "Renova"
+        )
+        self.assertEqual(missing_id.returncode, 2)
+        wrong_store = self.run_cli(
+            "mark-published",
+            str(output_dir),
+            "--store",
+            "Other Store",
+            "--product-id",
+            "101",
+        )
+        self.assertEqual(wrong_store.returncode, 2)
+        self.assertEqual(self.entry_for(output_dir)["status"], "miaoshou_collected")
+
+        self.assertEqual(
+            self.run_cli(
+                "mark-published",
+                str(output_dir),
+                "--store",
+                "Renova",
+                "--product-id",
+                "101",
+            ).returncode,
+            0,
+        )
+        changed = self.run_cli(
+            "mark-published",
+            str(output_dir),
+            "--store",
+            "Renova",
+            "--product-id",
+            "102",
+        )
+        self.assertEqual(changed.returncode, 2)
+        self.assertIn("different", changed.stderr)
+
+    def test_mark_published_validates_multiple_stores_and_rolls_back_on_write_failure(self) -> None:
+        config = self.load_config()
+        config["publication"]["store_names"] = ["Renova", "Second Store"]
+        config["publication"]["expected_store_count"] = 2
+        self.save_config(config)
+        output_dir = self.prepare_collected("双店发布商品", "PUBLISH-200")
+
+        duplicate_id = self.run_cli(
+            "mark-published",
+            str(output_dir),
+            "--store",
+            "Renova",
+            "--product-id",
+            "201",
+            "--store",
+            "Second Store",
+            "--product-id",
+            "201",
+        )
+        self.assertEqual(duplicate_id.returncode, 2)
+        partial = self.run_cli(
+            "mark-published",
+            str(output_dir),
+            "--store",
+            "Renova",
+            "--product-id",
+            "201",
+        )
+        self.assertEqual(partial.returncode, 2)
+
+        spec = importlib.util.spec_from_file_location("listing_publish_rollback", WORKFLOW)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        loaded_config = module.load_config(self.config_path)
+        context = module.build_context(self.root, self.config_path, loaded_config)
+        original = module.atomic_write_json
+
+        def fail_history_commit(path: Path, data: dict) -> None:
+            raise OSError("simulated publication failure")
+
+        module.atomic_write_json = fail_history_commit
+        try:
+            with self.assertRaisesRegex(OSError, "simulated publication failure"):
+                module.command_mark_published(
+                    types.SimpleNamespace(
+                        output_dir=str(output_dir),
+                        stores=["Renova", "Second Store"],
+                        product_ids=["201", "202"],
+                    ),
+                    context,
+                )
+        finally:
+            module.atomic_write_json = original
+        entry = self.entry_for(output_dir)
+        self.assertEqual(entry["status"], "miaoshou_collected")
+        self.assertNotIn("tiktok_publication", entry)
+
+    def test_tiktok_product_id_cannot_bind_to_two_listing_records(self) -> None:
+        first = self.prepare_collected("商品ID唯一一", "UNIQUE-ID-1")
+        second = self.prepare_collected("商品ID唯一二", "UNIQUE-ID-2")
+        self.assertEqual(
+            self.run_cli(
+                "mark-published",
+                str(first),
+                "--store",
+                "Renova",
+                "--product-id",
+                "1729000000000000555",
+            ).returncode,
+            0,
+        )
+        duplicate = self.run_cli(
+            "mark-published",
+            str(second),
+            "--store",
+            "Renova",
+            "--product-id",
+            "1729000000000000555",
+        )
+        self.assertEqual(duplicate.returncode, 2)
+        self.assertIn("another listing", duplicate.stderr)
+        self.assertEqual(self.entry_for(second)["status"], "miaoshou_collected")
 
     def test_stale_evidence_and_link_replacement_require_recheck(self) -> None:
         output_dir = self.reserve("数据线", "CABLE-2401")

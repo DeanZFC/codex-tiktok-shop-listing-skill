@@ -1,116 +1,52 @@
-# TikTok 商品上架与视频制作 Skills
+# TikTok Shop 上架与视频一体化 Skill
 
-仓库包含商品上架与视频制作两套 Codex Skills：上架流程管理选品、供货与成本核验、妙手采集和 SKU 编辑；视频流程从指定产品资料目录生成参考帧、视频及发布文案。
+本仓库只有一个主流程：`manage-tiktok-shop-listings`。它从一个单产品目录完成上架资料、供货与成本核验、妙手采集编辑、TikTok Shop 发布确认，再为同一已发布商品制作视频和发布文案。旧 `swimwear-tiktok-video-workflow` 仅保留历史提示兼容，不含第二套实现。
 
-仓库只包含流程、脚本和默认配置，不包含商品库、选品历史、Cookie、Token、密码或浏览器登录状态。
+仓库不包含商品、历史、Cookie、Token、密码或浏览器登录状态。
 
-## 新电脑制作视频
+## 新 Windows 电脑
 
-视频 Skill 位于 `skills/swimwear-tiktok-video-workflow`，支持牛仔裤、泳装和其他服装。新电脑安装一次，以后在 Codex 对话中给出单个产品的内容/图片文件夹即可。
-
-把下面这段发给新电脑的 Codex，并替换最后的产品目录：
+把下面整段发给新电脑 Codex，只替换产品目录：
 
 ```text
-请从 https://github.com/DeanZFC/codex-tiktok-shop-listing-skill 拉取代码。
-阅读 README.md，安装 swimwear-tiktok-video-workflow 技能和本地依赖，运行 doctor。
-然后用这个技能制作视频。产品内容和图片目录：<这里填本机产品文件夹的绝对路径>。
-默认网页生图和视频生成；需要登录哪个网站时，打开 Codex 内置浏览器让我登录。
-登录成功后继续，不要反复创建令牌。视频模型按页面积分从便宜到贵尝试，每次低于300积分，遵守工作流重试上限。
-成片后同时保存店铺标题、内容、尺寸、视频正文与最多5个标签，以及不超过30字符的链接标题。
+请从 https://github.com/DeanZFC/codex-tiktok-shop-listing-skill 拉取代码，
+安装 manage-tiktok-shop-listings 完整工作流。
+这是 Windows 电脑。产品目录：D:\产品资料\当前商品。
+从该目录完成商品资料、供货核验、妙手采集编辑和 TikTok Shop 发布；
+只有确认每个目标店铺发布成功并记录 TikTok 商品 ID 后，才继续为同一商品目录制作视频。
+视频完成后生成 tk发布内容.txt（正文加最多5个标签）和 视频链接标题.txt（不超过30字符）。
+需要哪个网站或账号时，打开对应内置浏览器让我登录；登录后继续并复用本机会话。
+Edge 妙手插件点击、验证码、系统重启、首次 WSL 用户创建或 sudo 密码输入时再让我操作。
+其他命令、安装、保存、发布、重试、下载、验收和剪辑由你自动执行，不要让我手工运行脚本。
+不要读取或上传旧电脑的密码、Cookie、Token；不要把产品资料和 history 提交 GitHub。
 ```
 
-Windows 电脑把提示中安装那一行改成：
+新电脑实际需要按需登录：Codex 桌面端、当前供货文档平台、妙手、TikTok Shop、toapi.top。公开 GitHub 无需登录。
 
-```text
-这是 Windows 电脑。请按 references/windows.md 安装：检查 Python、Git、WSL2 Ubuntu，使用 install_video_windows.py 安装，运行 windows.py doctor，并用隔离样例验证文件往返传递。产品目录为 D:\TikTok素材\001-蓝色牛仔裤。需要系统重启或首次创建 Ubuntu 用户时告诉我，网站登录则打开 Codex 内置浏览器。以后由你执行命令，我只提供产品目录。成片和文案复制回 Windows 文件夹。
-```
+## 安装入口
 
-Windows 安装入口（WSL2 Ubuntu 中先安装 Python 3.10+、python3-venv 和 FFmpeg）：
+Windows：
 
 ```powershell
 git clone https://github.com/DeanZFC/codex-tiktok-shop-listing-skill.git
 cd codex-tiktok-shop-listing-skill
-py -3 install_video_windows.py
+py -3 install_workflow_windows.py
 ```
 
-详细步骤见 [Windows 安装与文件传递](skills/swimwear-tiktok-video-workflow/references/windows.md)。安装器把技能放入 Windows Codex 技能目录，处理后端放入 WSL2；用户的产品图片可以留在 Windows。缺少 WSL2 时首次安装可能要求管理员权限和重启，不能跳过系统提示。
-
-macOS/Linux 安装命令：
+macOS/Linux：
 
 ```bash
 git clone https://github.com/DeanZFC/codex-tiktok-shop-listing-skill.git
 cd codex-tiktok-shop-listing-skill
-python3 install_video.py
+python3 install_workflow.py
 ```
 
-依赖 Python 3.10+ 和 FFmpeg/FFprobe。安装器创建独立 Python 环境，安装路径默认为 `~/.codex/skills/swimwear-tiktok-video-workflow`（支持 CODEX_HOME）。安装后让 Codex 阅读该技能；若未自动发现，重新打开对话或直接指定 SKILL.md 的绝对路径。
+系统依赖 Python 3.10+、Git、FFmpeg/FFprobe。Windows 视频和状态后端运行于 WSL2。更新用 `git pull --ff-only` 后运行对应安装器 `--replace`。详细说明见主 Skill 的 [setup.md](skills/manage-tiktok-shop-listings/references/setup.md) 和 [windows.md](skills/manage-tiktok-shop-listings/references/windows.md)。
 
-```bash
-~/.codex/skills/swimwear-tiktok-video-workflow/.venv/bin/python ~/.codex/skills/swimwear-tiktok-video-workflow/scripts/run.py doctor
-~/.codex/skills/swimwear-tiktok-video-workflow/.venv/bin/python ~/.codex/skills/swimwear-tiktok-video-workflow/scripts/run.py start "/本机/产品资料目录"
-```
+## 关键门禁
 
-start 创建本地任务，Codex 随后按技能继续网页生成、下载和验收。默认输出 `~/TikTokVideoWorkspace/已做/日期/001-货号`，可传 `--workspace` 改位置。恢复任务用 `run.py task TASK_DIR status`。
-
-账号要求：Codex 桌面端需要用户正常登录；生成阶段只需 toapi.top 账号和积分。API 密钥是可选配置；默认网页流程无需它。公开 GitHub 拉取无需登录，TikTok Shop/妙手仅上架发布时需要，Otuapp/Zexapi 不属于新流程必登项。
-
-生成页面未登录或会话失效时，Codex 显示内置浏览器登录页，等待用户登录后继续。账号密码、Cookie、令牌和产品资料不提交到 Git。Windows 通过 `windows.py` 转换路径及传递文件，状态机在 WSL2 运行。网页自动操作依赖目标电脑实际提供的浏览器控制和上传/下载工具，首次执行需在目标机检查，不能用单元测试代替实际验证。
-
-更新时在克隆目录执行 `git pull --ff-only`，macOS/Linux 再执行 `python3 install_video.py --replace`，Windows 执行 `py -3 install_video_windows.py --replace`。安装器先备份旧技能。旧电脑进行中任务和跨机去重不会自动迁移。详见 [视频安装说明](skills/swimwear-tiktok-video-workflow/references/setup.md)。
-
-## 商品上架 Skill 安装
-
-这是公开仓库，不需要登录 GitHub。最简单的安装方式是在另一台电脑的 Codex 中直接发送下面这句话和地址：
-
-```text
-请安装这个 GitHub Skill：
-https://github.com/DeanZFC/codex-tiktok-shop-listing-skill/tree/main/skills/manage-tiktok-shop-listings
-```
-
-也可以使用 Codex 自带的安装器手动安装：
-
-```bash
-python ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
-  --repo DeanZFC/codex-tiktok-shop-listing-skill \
-  --path skills/manage-tiktok-shop-listings
-```
-
-Windows PowerShell：
-
-```powershell
-py "$env:USERPROFILE\.codex\skills\.system\skill-installer\scripts\install-skill-from-github.py" `
-  --repo DeanZFC/codex-tiktok-shop-listing-skill `
-  --path skills/manage-tiktok-shop-listings
-```
-
-安装后在下一轮 Codex 任务中即可使用。Skill 需要 Python 3.10+；规格图和完成前的真实图片校验需要 Pillow。如本机缺少 Pillow，运行：
-
-```bash
-python -m pip install Pillow
-```
-
-## 首次配置
-
-在新电脑准备一个业务工作区，然后运行：
-
-```bash
-python "<SKILL_DIR>/scripts/listing_workflow.py" --root "<WORKSPACE>" init-config
-```
-
-编辑 `<WORKSPACE>/.tiktok-shop-listing/config.json`，设置商品库目录和输出目录。供货文档按品类独立配置：首次使用或换品类后，必须由用户手动重新提供文档，不能沿用以前品类的地址；填写地址时还要把当前 `catalog_roots` 写入 `availability.bound_catalog_roots`。该文档既用于确认商品仍在供货，也用于采集原价低于阈值时取得对应产品或 SKU 的供货成本。完整字段说明见 Skill 内的 `references/configuration.md`。
-
-默认业务规则：
-
-- 每次处理一款，输出到日期目录下的 `001-货号` 文件夹。
-- 删除低销量输出目录后，历史仍永久避免重复选品。
-- 用户链接顺序代表销量从高到低。
-- 每个 SKU 单独定价：采集原价 `P >= 50` 时保持原价；`P < 50` 时从当前品类供货文档取得对应成本 `C`，最低允许价为 `C * 1.05` 向上取整到分，最终价为原价与最低允许价中的较高者。无法确认成本、币种、计价单位或 SKU 对应关系时停止。
-- 所有 SKU 库存改为 `19`。
-- 默认最终保留三张同款图片，颜色、型号、规格和变体以供应商资料为准。
-- 换品类后旧供货文档自动失去采集资格；未提供新文档时仍可选品和准备扫同款资料。
-- 采集前必须按当前品类配置检查实时供货文档的所有工作表；采集后遇到低价 SKU 时还要记录精确成本及价格计算证据。
-- 编辑清理完成后，默认自动认领到 TikTok 采集箱，并按 `publication` 配置选择店铺、立即发布；最终核对商品、店铺、数量和附加项通过后自动点击“确认发布”。
-- 浏览器分工固定为：外部 TikTok/Temu/Amazon 商品页的插件采集使用 Microsoft Edge；供货文档、妙手、认领、编辑和发布页面使用 Codex 内置浏览器。
-- 常规编辑、核验和导航连续执行，不逐步询问；一个明确批次确认一次后，同批次的重复“确定/继续”弹窗自动处理。新的永久删除批次仍需一次动作时确认；配置启用自动发布时，最终发布不再重复询问。
-
-需要跨电脑延续去重时，另行安全迁移工作区内的 `.tiktok-shop-listing/history.json`，不要把它提交到代码仓库。
+- 上架输出使用 `链接/日期/001-货号`；视频继续使用同一目录。
+- `mark-collected` 只表示妙手编辑完成，不表示发布成功。
+- `mark-published` 必须记录每个配置店铺的唯一 TikTok 商品 ID，之后才允许 `start-video`。
+- 视频两段各约 15 秒，每段有效画面内英语口播至少覆盖三分之二；模型单次严格低于 300 积分并按便宜到贵尝试。
+- 最终保存 `final.mp4`、正文加最多 5 个标签，以及不超过 30 字符的链接标题。

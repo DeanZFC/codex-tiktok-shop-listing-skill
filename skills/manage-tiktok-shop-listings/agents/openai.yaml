@@ -1,4 +1,4 @@
 interface:
-  display_name: "TikTok Shop 通用上架"
-  short_description: "跨品类选品、供货核验、妙手编辑与TikTok按配置店铺发布"
-  default_prompt: "使用 $manage-tiktok-shop-listings 准备并发布下一款商品；换品类后绑定新的供货文档，完成妙手编辑后认领到TikTok并按配置选择店铺发布。"
+  display_name: "TikTok Shop 上架与视频"
+  short_description: "从单产品目录完成上架发布，并为同一商品制作视频和发布文案"
+  default_prompt: "使用 $manage-tiktok-shop-listings 处理我指定的单产品目录：完成商品上架，确认发布商品ID后继续制作同一商品视频；需要登录时打开对应浏览器。"
